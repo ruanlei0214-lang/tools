@@ -1,0 +1,13 @@
+{
+  "device": {
+    "host": "192.168.1.136",
+    "port": 22,
+    "user": "root",
+    "password": ""
+  },
+  "mask": "255.255.255.0",
+  "gateway": "",
+  "connectTimeoutSeconds": 2,
+  "persistIface": "br0",
+  "restoreFile": "/opt/runtime/ip"
+}

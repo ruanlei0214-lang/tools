@@ -1,0 +1,339 @@
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --border: #e3e6ea;
+  --text: #1f2430;
+  --text-dim: #6b7280;
+  --accent: #2563eb;
+  --accent-soft: #eaf1fe;
+  --ok: #15803d;
+  --ok-soft: #e8f6ed;
+  --err: #b91c1c;
+  --err-soft: #fdecec;
+  --radius: 8px;
+
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 14px;
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ---------- 外壳布局 ---------- */
+
+.shell {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 232px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.brand {
+  padding: 18px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.brand-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: var(--bg);
+}
+
+.nav-item.active {
+  background: var(--accent-soft);
+}
+
+.nav-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.nav-item.active .nav-name {
+  color: var(--accent);
+}
+
+.nav-desc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+.empty {
+  color: var(--text-dim);
+}
+
+/* ---------- 模块通用控件 ---------- */
+
+.module-head {
+  margin-bottom: 18px;
+}
+
+.module-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.module-desc {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.card {
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.card-title {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 150px;
+}
+
+.field label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+input,
+select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  user-select: text;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input:disabled,
+select:disabled {
+  background: var(--bg);
+  color: var(--text-dim);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+button {
+  padding: 7px 15px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: #c8ccd3;
+}
+
+button:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+button.primary:disabled {
+  border-color: #a8bdf0;
+  background: #a8bdf0;
+  color: #fff;
+}
+
+button.danger {
+  border-color: var(--err);
+  background: var(--err);
+  color: #fff;
+}
+
+button.danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.banner {
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.banner.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.banner.err {
+  background: var(--err-soft);
+  color: var(--err);
+}
+
+.banner.info {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+tbody tr {
+  cursor: pointer;
+}
+
+tbody tr:hover {
+  background: var(--bg);
+}
+
+tbody tr.selected {
+  background: var(--accent-soft);
+}
+
+/* 只读行和占位行都点不动，别让它们看起来能点。 */
+tbody tr.readonly {
+  cursor: default;
+}
+
+tbody tr.readonly:hover {
+  background: transparent;
+}
+
+/* 占位行连信息都没有，整行压暗；只读行的信息是真的，不压。 */
+tbody tr.blank {
+  color: var(--muted);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tag {
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--bg);
+  color: var(--text-dim);
+}
+
+.tag.up {
+  background: var(--ok-soft);
+  color: var(--ok);
+}

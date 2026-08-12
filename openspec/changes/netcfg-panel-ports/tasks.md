@@ -25,7 +25,7 @@
 - [x] 3.3 自动选中改为在可改的口里挑第一个 UP 的；一个可改的都没有时提示「没有可以修改地址的网口」。
 - [x] 3.4 `apply()` 下发前先取出系统网口名（`selected` 会在函数体中途被清空）。
 - [x] 3.5 `willPersist` 改为比较系统网口名。
-- [x] 3.6 新增 `siblings` computed 与联动提示；新增 `persistPorts` computed，持久化提示改用面板名。
+- [x] 3.6 新增 `siblings` computed 与联动提示；删掉「下发配置」旁的持久化提示（下发成功的提示已经说明了结果），连带去掉 `persistPorts`。
 - [x] 3.7 表格模板改用面板口；只读行加 `readonly` 类与「只读」标记，占位行再加 `blank` 类；`style.css` 区分"点不动"与"压暗"两种样式。
 - [x] 3.8 表格上方列出当前可改的面板口（`editable` computed）。
 

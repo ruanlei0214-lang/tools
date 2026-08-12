@@ -13,6 +13,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -55,8 +56,26 @@ func run() error {
 		return err
 	}
 
-	fmt.Printf("\n构建完成：build\\bin\\embedtools.exe（模块：%s）\n", strings.Join(selected, " "))
+	fmt.Printf("\n构建完成：build\\bin\\%s（模块：%s）\n", outputName(), strings.Join(selected, " "))
 	return nil
+}
+
+// outputName 从 wails.json 读产物文件名。
+//
+// 不在这儿写死：那个名字带版本号，改版本时漏改这里只会让提示指向一个不存在的文件。
+// 读不到就退回一句不提名字的话——构建本身已经成功了，为一句提示报错没道理。
+func outputName() string {
+	raw, err := os.ReadFile("wails.json")
+	if err != nil {
+		return "（产物见 wails.json 的 outputfilename）"
+	}
+	var cfg struct {
+		OutputFilename string `json:"outputfilename"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.OutputFilename == "" {
+		return "（产物见 wails.json 的 outputfilename）"
+	}
+	return cfg.OutputFilename + ".exe"
 }
 
 func listModules() ([]string, error) {

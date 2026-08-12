@@ -5,13 +5,16 @@
 - [x] 1.3 新增 `shell/version.ts` 导出 `APP_VERSION = 'V1.0.1'`，注释写明要和 `wails.json` 手工同步。
 - [x] 1.4 `wails.json` 补 `info` 段：`productName`、`productVersion`、`companyName`、`copyright`。
 - [x] 1.5 `build/windows/info.json` 补 `FileVersion` 字符串键与 `fixed.product_version`。Wails 的默认模板漏了 `FileVersion`，缺了它 Windows 读版本信息时会把整张字符串表一起丢掉。
+- [x] 1.6 `wails.json` 的 `outputfilename` 改为 `C2toolsV1.0.1`，产物文件名自带版本。
+- [x] 1.7 `build.ps1` 与 `tools/pickbuild` 的完成提示改为从 `wails.json` 读 `outputfilename`；`tools/appicon/dump_exe_icons.py` 默认路径改为在 `build/bin` 里找 exe。
 
 ## 2. 「关于」界面
 
 - [x] 2.1 `App.vue` 侧栏底部加「关于」按钮，`margin-top: auto` 顶到底，不进模块导航列表。
-- [x] 2.2 弹窗只列两行：工具箱版本、当前模块名与版本；没有当前模块时只留第一行。
+- [x] 2.2 弹窗分两组：工具箱（名称、版本）与当前模块（名称、标识、版本、说明）；没有当前模块时只留第一组。
 - [x] 2.3 遮罩点击与「知道了」都能关闭。
 - [x] 2.4 弹窗样式 scoped 在 `App.vue`，不提取共享组件。
+- [x] 2.5 产品名提取为 `APP_NAME`，侧栏标题与「关于」共用。
 
 ## 3. 文档
 
@@ -24,5 +27,6 @@
 
 - [x] 4.1 `vue-tsc --noEmit` 在 netcfg-only 与 all 两种 profile 下都通过。
 - [x] 4.2 `wails build` 通过，Wails 绑定无需改动。
-- [x] 4.3 截图确认：「关于」在侧栏底部，弹窗两行；切到 Hello World 后第二行变为该模块的版本。
+- [x] 4.3 截图确认：「关于」在侧栏底部，弹窗分两组；切到 Hello World 后当前模块那组整组跟着变。
 - [x] 4.4 确认 exe 文件属性里的 ProductName / ProductVersion / FileVersion / CompanyName 都读得出来。
+- [x] 4.5 清空 `build/bin` 后重新构建，确认产物就叫 `C2toolsV1.0.1.exe`。

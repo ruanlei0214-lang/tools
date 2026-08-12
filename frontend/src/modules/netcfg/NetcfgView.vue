@@ -65,13 +65,6 @@ const siblings = computed(() => {
   return names.length > 1 ? names : []
 })
 
-// 提示里说的是面板口名。持久化配置项写的是系统网口名（br0），那个名字界面上不该出现。
-const persistPorts = computed(() =>
-  defaults.persistIface === ''
-    ? []
-    : ports.value.filter((p) => p.iface === defaults.persistIface).map((p) => p.name),
-)
-
 async function call(op: string, fn: () => Promise<void>) {
   busy.value = op
   banner.value = null
@@ -153,145 +146,367 @@ function restore() {
 </script>
 
 <template>
-  <div class="module-head">
-    <h1 class="module-title">网络配置</h1>
-  </div>
+  <div class="page">
+    <header class="page-head">
+      <h1 class="page-title">网络配置</h1>
+      <p class="page-sub">按机柜面板网口改地址：先连设备，再点可改的网口，最后下发。</p>
+    </header>
 
-  <!-- 配置告警独立一条，不与操作结果的 banner 抢位置，否则点一次操作就被冲掉。 -->
-  <div v-if="configWarning" class="banner err config-warning">{{ configWarning }}</div>
+    <!-- 配置告警独立一条，不与操作结果的 banner 抢位置，否则点一次操作就被冲掉。 -->
+    <div v-if="configWarning" class="banner err">{{ configWarning }}</div>
 
-  <section class="card">
-    <h2 class="card-title">设备连接</h2>
-    <div class="field-row">
-      <div class="field" style="flex: 0 1 240px">
-        <label for="host">设备地址</label>
-        <input id="host" v-model.trim="device.host" placeholder="192.168.1.100" />
+    <!-- ① 连接：地址在左，两个主操作按钮并排在右。「一键恢复」是现场重点工具，
+         用实心危险按钮突出，不能缩成文字链。 -->
+    <section class="panel">
+      <div class="step-label">1 · 连接设备</div>
+      <div class="connect-row">
+        <div class="field grow">
+          <label for="host">设备地址</label>
+          <input id="host" v-model.trim="device.host" placeholder="192.168.1.100" />
+        </div>
+        <div class="connect-actions">
+          <button class="primary connect-btn" :disabled="busy !== ''" @click="test">
+            {{ busy === 'test' ? '连接中…' : '测试连接' }}
+          </button>
+          <button class="danger connect-btn restore-btn" :disabled="busy !== ''" @click="restore">
+            {{ busy === 'restore' ? '恢复中…' : '一键恢复网络' }}
+          </button>
+        </div>
       </div>
-    </div>
-    <div class="actions">
-      <button class="primary" :disabled="busy !== ''" @click="test">
-        {{ busy === 'test' ? '连接中…' : '测试连接' }}
-      </button>
-      <button class="danger" :disabled="busy !== ''" @click="restore">
-        {{ busy === 'restore' ? '恢复中…' : '一键恢复网络' }}
-      </button>
-    </div>
-  </section>
+    </section>
 
-  <section v-if="ports.length" class="card">
-    <h2 class="card-title">网口（点击选择要修改的网口）</h2>
-    <p class="hint table-note">
-      <template v-if="editable.length">
-        这台设备上只有 {{ editable.map((p) => p.name).join('、') }} 可以在这里改地址，其余网口只读。
-      </template>
-      <template v-else>这台设备上没有可以在这里改地址的网口。</template>
-    </p>
-    <table>
-      <thead>
-        <tr>
-          <th>网口</th>
-          <th>状态</th>
-          <th>IP 地址</th>
-          <th>子网掩码</th>
-          <th>网关</th>
-          <th>MAC</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
+    <div v-if="banner" class="banner" :class="banner.kind">{{ banner.text }}</div>
+
+    <!-- ② 选口：五个面板口并排，IP 放大；可改的才像能点，只读的压暗。 -->
+    <section v-if="ports.length" class="panel">
+      <div class="step-head">
+        <div class="step-label">2 · 选择网口</div>
+        <p v-if="editable.length" class="step-hint">
+          可改：{{ editable.map((p) => p.name).join('、') }} · 其余只读
+        </p>
+        <p v-else class="step-hint">这台设备上没有可以在这里改地址的网口</p>
+      </div>
+
+      <div class="port-grid">
+        <button
           v-for="p in ports"
           :key="p.name"
-          :class="{ selected: p.name === selected, blank: !p.iface, readonly: !p.editable }"
+          type="button"
+          class="port-card"
+          :class="{
+            selected: p.name === selected,
+            editable: p.editable,
+            readonly: p.iface && !p.editable,
+            blank: !p.iface,
+          }"
+          :disabled="!p.editable"
           @click="select(p)"
         >
-          <td>
-            {{ p.name }}
-            <span v-if="p.iface && !p.editable" class="ro-tag">只读</span>
-          </td>
-          <td>
-            <span v-if="p.iface" class="tag" :class="{ up: p.up }">{{ p.up ? 'UP' : 'DOWN' }}</span>
-            <span v-else>—</span>
-          </td>
-          <td>{{ p.ip || '—' }}</td>
-          <td>{{ p.mask || '—' }}</td>
-          <td>{{ p.gateway || '—' }}</td>
-          <td>{{ p.mac || '—' }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </section>
+          <div class="port-top">
+            <span class="port-name">{{ p.name }}</span>
+            <span v-if="p.iface" class="port-status" :class="{ up: p.up }">
+              {{ p.up ? 'UP' : 'DOWN' }}
+            </span>
+            <span v-else class="port-status muted">—</span>
+          </div>
 
-  <section v-if="selected" class="card">
-    <h2 class="card-title">修改 {{ selected }} 的地址</h2>
-    <p v-if="siblings.length" class="hint sibling-note">
-      {{ siblings.join('、') }} 在这台设备上是同一个网口，改一个，另外几个跟着一起变。
-    </p>
-    <div class="field-row">
-      <div class="field">
-        <label for="ip">IP 地址</label>
-        <input id="ip" v-model.trim="form.ip" placeholder="192.168.1.100" />
-      </div>
-      <div class="field">
-        <label for="mask">子网掩码</label>
-        <input id="mask" v-model.trim="form.mask" placeholder="255.255.255.0" />
-      </div>
-      <div class="field">
-        <label for="gateway">默认网关</label>
-        <input id="gateway" v-model.trim="form.gateway" placeholder="留空表示不改默认路由" />
-      </div>
-    </div>
-    <div class="actions">
-      <template v-if="confirming">
-        <button class="danger" :disabled="busy !== ''" @click="apply">
-          {{ busy === 'apply' ? '下发中…' : '确认下发' }}
+          <div class="port-ip">{{ p.ip || '—' }}</div>
+
+          <div class="port-meta">
+            <template v-if="p.iface">
+              <span>{{ p.mask || '—' }}</span>
+              <span v-if="p.gateway">网关 {{ p.gateway }}</span>
+            </template>
+            <template v-else>不由本工具管理</template>
+          </div>
+
+          <div class="port-badge">
+            <template v-if="p.editable">可改</template>
+            <template v-else-if="p.iface">只读</template>
+            <template v-else>空</template>
+          </div>
         </button>
-        <button :disabled="busy !== ''" @click="confirming = false">取消</button>
-        <span class="hint">下发后当前连接会立即断开，请确认新地址与本机在同一网段。</span>
-      </template>
-      <template v-else>
-        <button class="primary" :disabled="!canApply || busy !== ''" @click="confirming = true">
-          下发配置
-        </button>
-        <span v-if="willPersist" class="hint">
-          配置会写入设备上的 {{ defaults.restoreFile }}，重启后仍然生效。
-        </span>
-        <span v-else class="hint">
-          配置只在设备运行期间生效，重启后就没了<template v-if="persistPorts.length">（只有
-          {{ persistPorts.join('、') }} 会被持久化）</template>。
-        </span>
-      </template>
-    </div>
-  </section>
+      </div>
+    </section>
 
-  <div v-if="banner" class="banner" :class="banner.kind">{{ banner.text }}</div>
+    <!-- ③ 改地址：选中后才出现，标题直接点名网口。 -->
+    <section v-if="selected" class="panel edit-panel">
+      <div class="step-label">3 · 修改 {{ selected }} 的地址</div>
+      <p v-if="siblings.length" class="sibling-note">
+        {{ siblings.join('、') }} 是同一网口，改一个另外几个一起变。
+      </p>
 
-  <div v-if="rebootNotice" class="modal-mask">
-    <div class="modal">
-      <h2 class="modal-title">请重启机器人控制器</h2>
-      <div class="modal-actions">
-        <button class="primary" @click="rebootNotice = false">知道了</button>
+      <div class="field-row">
+        <div class="field">
+          <label for="ip">IP 地址</label>
+          <input id="ip" v-model.trim="form.ip" placeholder="192.168.1.100" />
+        </div>
+        <div class="field">
+          <label for="mask">子网掩码</label>
+          <input id="mask" v-model.trim="form.mask" placeholder="255.255.255.0" />
+        </div>
+        <div class="field">
+          <label for="gateway">默认网关</label>
+          <input id="gateway" v-model.trim="form.gateway" placeholder="留空表示不改默认路由" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <template v-if="confirming">
+          <button class="danger" :disabled="busy !== ''" @click="apply">
+            {{ busy === 'apply' ? '下发中…' : '确认下发' }}
+          </button>
+          <button :disabled="busy !== ''" @click="confirming = false">取消</button>
+          <span class="hint">下发后当前连接会立即断开，请确认新地址与本机在同一网段。</span>
+        </template>
+        <template v-else>
+          <button class="primary" :disabled="!canApply || busy !== ''" @click="confirming = true">
+            下发配置
+          </button>
+        </template>
+      </div>
+    </section>
+
+    <div v-if="rebootNotice" class="modal-mask">
+      <div class="modal">
+        <h2 class="modal-title">请重启机器人控制器</h2>
+        <div class="modal-actions">
+          <button class="primary" @click="rebootNotice = false">知道了</button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.config-warning {
-  margin-bottom: 16px;
+.page {
+  max-width: 920px;
+}
+
+.page-head {
+  margin-bottom: 18px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.page-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.panel {
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.step-label {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.step-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+}
+
+.step-head .step-label {
+  margin: 0;
+}
+
+.step-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.connect-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.field.grow {
+  flex: 1 1 240px;
+  max-width: 320px;
+}
+
+.connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.connect-btn {
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* 现场重点工具：比普通 danger 再大一点、字重更重，一眼能找到。 */
+.restore-btn {
+  min-width: 132px;
+  letter-spacing: 0.02em;
+}
+
+.port-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.port-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 118px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+
+.port-card.editable {
+  cursor: pointer;
+}
+
+.port-card.editable:hover {
+  border-color: #c8ccd3;
+  background: var(--bg);
+}
+
+.port-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.port-card.readonly,
+.port-card.blank {
+  cursor: default;
+  background: #fafbfc;
+  color: var(--text-dim);
+}
+
+.port-card:disabled {
+  cursor: default;
+}
+
+.port-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.port-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.port-card.readonly .port-name,
+.port-card.blank .port-name {
+  color: var(--text-dim);
+}
+
+.port-status {
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--bg);
+  color: var(--text-dim);
+}
+
+.port-status.up {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.port-status.muted {
+  background: transparent;
+  padding: 0;
+}
+
+/* IP 是现场最要看的数，放大并排成等宽数字。 */
+.port-ip {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.port-card.readonly .port-ip,
+.port-card.blank .port-ip {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.port-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+
+.port-badge {
+  margin-top: auto;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.port-card.editable .port-badge {
+  color: var(--accent);
+}
+
+.port-card.selected .port-badge {
+  color: var(--accent);
+}
+
+.port-card.readonly .port-badge,
+.port-card.blank .port-badge {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.edit-panel {
+  border-color: #c9d8f5;
+  background: #f8faff;
 }
 
 .sibling-note {
   margin: -4px 0 14px;
-}
-
-.table-note {
-  margin: -4px 0 12px;
-}
-
-.ro-tag {
-  margin-left: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
+}
+
+.banner {
+  margin-bottom: 14px;
 }
 
 .modal-mask {
@@ -322,5 +537,25 @@ function restore() {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
+}
+
+@media (max-width: 900px) {
+  .port-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .port-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .connect-row {
+    flex-wrap: wrap;
+  }
+
+  .field.grow {
+    max-width: none;
+  }
 }
 </style>

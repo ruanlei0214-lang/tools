@@ -59,7 +59,17 @@ def main(exe: Path, out: Path) -> None:
             print(f"  {w}x{h} -> {path.name}")
 
 
+def default_exe() -> Path:
+    """构建产物的文件名带版本号，会随发版变，所以在 build/bin 里找而不是写死。"""
+    found = sorted(Path("build/bin").glob("*.exe"))
+    if not found:
+        sys.exit("build/bin 下没有 exe，先构建，或把路径作为第一个参数传进来")
+    if len(found) > 1:
+        sys.exit(f"build/bin 下有多个 exe，请指定一个：{', '.join(p.name for p in found)}")
+    return found[0]
+
+
 if __name__ == "__main__":
-    exe = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("build/bin/embedtools.exe")
+    exe = Path(sys.argv[1]) if len(sys.argv) > 1 else default_exe()
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("build/_icons_dump")
     main(exe, out)

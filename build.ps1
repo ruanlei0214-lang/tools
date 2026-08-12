@@ -17,4 +17,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 wails build
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "构建完成：build\bin\embedtools.exe (profile: $Profile)"
+# 产物名从 wails.json 读，别在这儿再写一份：它带版本号，改版本时漏改这里
+# 只会让提示指向一个不存在的文件。
+$exe = (Get-Content "$PSScriptRoot\wails.json" -Raw | ConvertFrom-Json).outputfilename
+Write-Host "构建完成：build\bin\$exe.exe (profile: $Profile)"

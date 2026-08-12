@@ -28,7 +28,7 @@ wails doctor
 ## 开发与构建
 
 ```powershell
-.\build.ps1                      # 构建全部模块，产物 build\bin\embedtools.exe
+.\build.ps1                      # 构建全部模块，产物 build\bin\C2toolsV1.0.1.exe
 .\build.ps1 -Profile netcfg-only # 只编译指定 profile 的模块
 go run ./tools/pickbuild         # 交互式挑模块再构建，不用先定义 profile
 wails dev                        # 热重载开发，浏览器调试入口 http://localhost:34115

@@ -307,20 +307,6 @@ tbody tr.selected {
   background: var(--accent-soft);
 }
 
-/* 只读行和占位行都点不动，别让它们看起来能点。 */
-tbody tr.readonly {
-  cursor: default;
-}
-
-tbody tr.readonly:hover {
-  background: transparent;
-}
-
-/* 占位行连信息都没有，整行压暗；只读行的信息是真的，不压。 */
-tbody tr.blank {
-  color: var(--muted);
-}
-
 tbody tr:last-child td {
   border-bottom: none;
 }

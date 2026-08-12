@@ -34,7 +34,7 @@ onMounted(async () => {
   await test()
 })
 
-// 表格里是机柜面板上的口（lan1..lan5），不是系统网口。selected 存的是面板口名，
+// 列表里是机柜面板上的口（lan1..lan5），不是系统网口。selected 存的是面板口名，
 // 下发配置时要换成它背后的系统网口名。
 const ports = ref<netcfg.Port[]>([])
 const selected = ref('')
@@ -42,6 +42,12 @@ const busy = ref('')
 const confirming = ref(false)
 const rebootNotice = ref(false)
 const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+
+// 配置告警与操作结果共用一条状态槽：告警优先，操作只清 banner，冲不掉告警。
+const status = computed(() => {
+  if (configWarning.value) return { kind: 'err' as const, text: configWarning.value }
+  return banner.value
+})
 
 const current = computed(() => ports.value.find((p) => p.name === selected.value) ?? null)
 
@@ -84,7 +90,7 @@ function test() {
   return call('test', async () => {
     // 先清掉上一次连接读到的网口。连不上（超时、认证失败、地址不可达都算）却还留着旧
     // 设备的网口列表，用户会当成当前设备的状态，照着它改地址就改到别处去了。放在开头
-    // 而不是 catch 里：连接期间状态本来就是未知的，空表格比一份过期的表格诚实。
+    // 而不是 catch 里：连接期间状态本来就是未知的，空列表比一份过期的列表诚实。
     ports.value = []
     selected.value = ''
     confirming.value = false
@@ -152,9 +158,6 @@ function restore() {
       <p class="page-sub">按机柜面板网口改地址：先连设备，再点可改的网口，最后下发。</p>
     </header>
 
-    <!-- 配置告警独立一条，不与操作结果的 banner 抢位置，否则点一次操作就被冲掉。 -->
-    <div v-if="configWarning" class="banner err">{{ configWarning }}</div>
-
     <!-- ① 连接：地址在左，两个主操作按钮并排在右。「一键恢复」是现场重点工具，
          用实心危险按钮突出，不能缩成文字链。 -->
     <section class="panel">
@@ -175,9 +178,12 @@ function restore() {
       </div>
     </section>
 
-    <div v-if="banner" class="banner" :class="banner.kind">{{ banner.text }}</div>
+    <!-- 状态栏始终占位：配置告警与操作结果共用；没有文案也留高度，下方不跟着跳。 -->
+    <div class="status-slot" :class="status ? status.kind : 'idle'" aria-live="polite">
+      {{ status?.text ?? '' }}
+    </div>
 
-    <!-- ② 选口：五个面板口并排，IP 放大；可改的才像能点，只读的压暗。 -->
+    <!-- ② 选口：五个面板口竖排成列表，IP 突出；可改的才像能点，只读的压暗。 -->
     <section v-if="ports.length" class="panel">
       <div class="step-head">
         <div class="step-label">2 · 选择网口</div>
@@ -187,12 +193,12 @@ function restore() {
         <p v-else class="step-hint">这台设备上没有可以在这里改地址的网口</p>
       </div>
 
-      <div class="port-grid">
+      <div class="port-list">
         <button
           v-for="p in ports"
           :key="p.name"
           type="button"
-          class="port-card"
+          class="port-row"
           :class="{
             selected: p.name === selected,
             editable: p.editable,
@@ -202,29 +208,23 @@ function restore() {
           :disabled="!p.editable"
           @click="select(p)"
         >
-          <div class="port-top">
+          <div class="port-name-cell">
             <span class="port-name">{{ p.name }}</span>
-            <span v-if="p.iface" class="port-status" :class="{ up: p.up }">
-              {{ p.up ? 'UP' : 'DOWN' }}
+            <span class="port-badge">
+              <template v-if="p.editable">可改</template>
+              <template v-else-if="p.iface">只读</template>
+              <template v-else>空</template>
             </span>
-            <span v-else class="port-status muted">—</span>
           </div>
+
+          <span v-if="p.iface" class="port-status" :class="{ up: p.up }">
+            {{ p.up ? 'UP' : 'DOWN' }}
+          </span>
+          <span v-else class="port-status muted">—</span>
 
           <div class="port-ip">{{ p.ip || '—' }}</div>
-
-          <div class="port-meta">
-            <template v-if="p.iface">
-              <span>{{ p.mask || '—' }}</span>
-              <span v-if="p.gateway">网关 {{ p.gateway }}</span>
-            </template>
-            <template v-else>不由本工具管理</template>
-          </div>
-
-          <div class="port-badge">
-            <template v-if="p.editable">可改</template>
-            <template v-else-if="p.iface">只读</template>
-            <template v-else>空</template>
-          </div>
+          <div class="port-mask">{{ p.iface ? p.mask || '—' : '—' }}</div>
+          <div class="port-gw">{{ p.iface ? p.gateway || '—' : '不由本工具管理' }}</div>
         </button>
       </div>
     </section>
@@ -280,37 +280,37 @@ function restore() {
 
 <style scoped>
 .page {
-  max-width: 920px;
+  max-width: 880px;
 }
 
 .page-head {
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .page-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
 }
 
 .page-sub {
-  margin: 6px 0 0;
-  font-size: 13px;
+  margin: 4px 0 0;
+  font-size: 12px;
   color: var(--text-dim);
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .panel {
-  margin-bottom: 14px;
-  padding: 16px 18px;
+  margin-bottom: 10px;
+  padding: 12px 14px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
 .step-label {
-  margin: 0 0 12px;
-  font-size: 13px;
+  margin: 0 0 8px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.02em;
@@ -320,8 +320,8 @@ function restore() {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-bottom: 12px;
+  gap: 4px 12px;
+  margin-bottom: 8px;
 }
 
 .step-head .step-label {
@@ -338,103 +338,123 @@ function restore() {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
-  gap: 10px 12px;
+  gap: 8px 10px;
 }
 
 .field.grow {
-  flex: 1 1 240px;
-  max-width: 320px;
+  flex: 1 1 220px;
+  max-width: 280px;
 }
 
 .connect-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .connect-btn {
   flex-shrink: 0;
-  height: 36px;
-  padding: 0 18px;
+  height: 32px;
+  padding: 0 14px;
   font-size: 13px;
   font-weight: 600;
 }
 
-/* 现场重点工具：比普通 danger 再大一点、字重更重，一眼能找到。 */
+/* 现场重点工具：字重更重，一眼能找到。 */
 .restore-btn {
-  min-width: 132px;
+  min-width: 120px;
   letter-spacing: 0.02em;
 }
 
-.port-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.port-card {
+/* 竖排列表：行距压紧，口名和标记同一行。 */
+.port-list {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  min-height: 118px;
-  padding: 12px;
+  gap: 4px;
+}
+
+.port-row {
+  display: grid;
+  grid-template-columns: 92px 52px minmax(110px, 1.2fr) minmax(100px, 1fr) minmax(110px, 1.2fr);
+  align-items: center;
+  gap: 6px 12px;
+  width: 100%;
+  padding: 7px 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 6px;
   background: #fff;
   text-align: left;
   font-family: inherit;
   color: inherit;
 }
 
-.port-card.editable {
+.port-row.editable {
   cursor: pointer;
 }
 
-.port-card.editable:hover {
+.port-row.editable:hover {
   border-color: #c8ccd3;
   background: var(--bg);
 }
 
-.port-card.selected {
+.port-row.selected {
   border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-.port-card.readonly,
-.port-card.blank {
+.port-row.readonly,
+.port-row.blank {
   cursor: default;
   background: #fafbfc;
   color: var(--text-dim);
 }
 
-.port-card:disabled {
+.port-row:disabled {
   cursor: default;
 }
 
-.port-top {
+.port-name-cell {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: row;
+  align-items: baseline;
   gap: 6px;
+  min-width: 0;
 }
 
 .port-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text);
 }
 
-.port-card.readonly .port-name,
-.port-card.blank .port-name {
+.port-row.readonly .port-name,
+.port-row.blank .port-name {
   color: var(--text-dim);
 }
 
-.port-status {
-  padding: 1px 7px;
-  border-radius: 10px;
+.port-badge {
   font-size: 11px;
+  font-weight: 600;
+}
+
+.port-row.editable .port-badge,
+.port-row.selected .port-badge {
+  color: var(--accent);
+}
+
+.port-row.readonly .port-badge,
+.port-row.blank .port-badge {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.port-status {
+  justify-self: start;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 18px;
   background: var(--bg);
   color: var(--text-dim);
 }
@@ -449,9 +469,8 @@ function restore() {
   padding: 0;
 }
 
-/* IP 是现场最要看的数，放大并排成等宽数字。 */
 .port-ip {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
@@ -459,39 +478,18 @@ function restore() {
   word-break: break-all;
 }
 
-.port-card.readonly .port-ip,
-.port-card.blank .port-ip {
+.port-row.readonly .port-ip,
+.port-row.blank .port-ip {
   color: var(--text-dim);
   font-weight: 500;
 }
 
-.port-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  line-height: 1.35;
+.port-mask,
+.port-gw {
+  font-size: 12px;
   color: var(--text-dim);
-}
-
-.port-badge {
-  margin-top: auto;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.port-card.editable .port-badge {
-  color: var(--accent);
-}
-
-.port-card.selected .port-badge {
-  color: var(--accent);
-}
-
-.port-card.readonly .port-badge,
-.port-card.blank .port-badge {
-  color: var(--text-dim);
-  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
 }
 
 .edit-panel {
@@ -500,13 +498,50 @@ function restore() {
 }
 
 .sibling-note {
-  margin: -4px 0 14px;
+  margin: -2px 0 10px;
   font-size: 12px;
   color: var(--text-dim);
 }
 
-.banner {
-  margin-bottom: 14px;
+.actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+/* 固定高度状态栏：空着也占位，下方坐标不跟着闪。
+   两行文案够用；再长就内部滚动，绝不撑开把下面顶走。 */
+.status-slot {
+  box-sizing: border-box;
+  height: 40px;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: auto;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.status-slot.idle {
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  color: transparent;
+}
+
+.status-slot.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.status-slot.err {
+  background: var(--err-soft);
+  color: var(--err);
+}
+
+.status-slot.info {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .modal-mask {
@@ -539,15 +574,36 @@ function restore() {
   margin-top: 18px;
 }
 
-@media (max-width: 900px) {
-  .port-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+@media (max-width: 720px) {
+  .port-row {
+    grid-template-columns: 72px 48px 1fr;
+    grid-template-areas:
+      "name status ip"
+      "name status meta";
+    padding: 6px 8px;
   }
-}
 
-@media (max-width: 640px) {
-  .port-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .port-name-cell {
+    grid-area: name;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .port-status {
+    grid-area: status;
+  }
+
+  .port-ip {
+    grid-area: ip;
+  }
+
+  .port-mask,
+  .port-gw {
+    grid-area: meta;
+  }
+
+  .port-mask {
+    display: none;
   }
 
   .connect-row {

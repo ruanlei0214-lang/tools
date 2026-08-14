@@ -56,7 +56,7 @@ profile 定义在 `modules.json`，接线代码由 `tools/genmodules` 从中生�
 #### Scenario: 用子集 profile 构建
 
 - **WHEN** 执行 `.\build.ps1 -Profile netcfg-only`，而该 profile 只列了 `netcfg`
-- **THEN** 产物里搜不到 `hello` 模块的任何字符串，侧边栏也不显示它
+- **THEN** 产物里搜不到 `remote` 模块的任何字符串，侧边栏也不显示它
 
 #### Scenario: profile 引用了不存在的模块
 

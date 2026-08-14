@@ -1,11 +1,13 @@
 # 构建工具
 
-两个命令行工具，都**必须在仓库根目录运行**（它们用相对路径找模块目录）。
+命令行工具都**必须在仓库根目录运行**（它们用相对路径找模块目录）。不想敲命令时，双击 `tools\BuildUI.exe`，或在仓库根目录 `go run ./tools/buildui`。
 
 | 工具 | 干什么 | 什么时候用 |
 | --- | --- | --- |
+| [BuildUI](#buildui) | 图形界面：选 profile / 模块后点按钮 | 日常点一下就构建 |
 | [genmodules](#genmodules) | 按选定的模块生成接线代码 | 新增/删除模块后，或要换 profile 时 |
 | [pickbuild](#pickbuild) | 交互式挑模块并构建 | 临时组合，懒得先去 `modules.json` 加 profile |
+| [packportable](#packportable) | 把 exe 收成绿色版目录 | `wails build` 之后；`build.ps1` / BuildUI / pickbuild 会自动跑 |
 
 ## 为什么需要它们
 
@@ -25,6 +27,38 @@ frontend/src/shell/modules.gen.ts   前端：只 import 选中模块的 module.t
 
 ---
 
+## BuildUI
+
+双击 `tools\BuildUI.exe`，或在仓库根目录：
+
+```powershell
+go run ./tools/buildui
+```
+
+窗口里可以：
+
+- 选 `modules.json` 里的 profile，或勾选自选模块
+- **仅生成接线** —— 只跑 `genmodules`
+- **构建** —— `genmodules` + `wails build` + `packportable`（绿色版目录）
+- **开发模式** —— `genmodules` + `wails dev`（一直跑，点「停止」结束）
+- **运行软件** —— 启动绿色版目录里的 exe；没构建过或正在构建时点不动
+- **打开产物目录** —— `build\bin`
+
+它不替代 `build.ps1` / `pickbuild`，只是把这两条路摆到按钮上。交付给客户的组合仍然应该写成 profile。
+
+从资源管理器双击时会把用户/系统 PATH 以及 `%USERPROFILE%\go\bin` 拼进去，避免找不到 `go` 或 `wails`。
+
+改过界面源码后重新编译（在仓库根目录）：
+
+```powershell
+go run github.com/akavel/rsrc@latest -manifest tools\buildui\app.manifest -o tools\buildui\rsrc.syso
+go build -ldflags="-H windowsgui" -o tools\BuildUI.exe ./tools/buildui
+```
+
+产物是 `tools\BuildUI.exe`。`-H windowsgui` 用来去掉黑色控制台窗口。`rsrc.syso` 把 Windows 通用控件清单打进 exe，缺了它会报 `TTM_ADDTOOL failed`。
+
+---
+
 ## genmodules
 
 ### 命令
@@ -36,7 +70,7 @@ go run ./tools/genmodules -profile netcfg-only
 
 # 临时指定模块，不读 modules.json
 go run ./tools/genmodules -modules netcfg
-go run ./tools/genmodules -modules hello,netcfg
+go run ./tools/genmodules -modules remote,netcfg
 
 # 只打印可用模块，一行一个，不生成任何文件
 go run ./tools/genmodules -list
@@ -55,11 +89,11 @@ go run ./tools/genmodules -list
 
 ```
 > go run ./tools/genmodules -list
-hello
+remote
 netcfg
 
 > go run ./tools/genmodules -profile all
-profile "all"：启用 2 个模块 [hello netcfg]
+profile "all"：启用 2 个模块 [netcfg remote]
 
 > go run ./tools/genmodules -modules netcfg
 profile "自选"：启用 1 个模块 [netcfg]
@@ -74,7 +108,7 @@ profile "自选"：启用 1 个模块 [netcfg]
 
 ```
 genmodules: modules.json 里没有 profile "nope"，可选：all、netcfg-only
-genmodules: 指定的模块 "ghost" 不存在，现有模块：hello、netcfg
+genmodules: 指定的模块 "ghost" 不存在，现有模块：netcfg、remote
 genmodules: 模块 foo 只有后端，缺少 frontend/src/modules/foo/
 genmodules: 警告：模块 foo 缺少文档 doc/foo.md
 ```
@@ -94,14 +128,14 @@ genmodules: 警告：模块 foo 缺少文档 doc/foo.md
 go run ./tools/pickbuild
 ```
 
-列出模块让你按编号挑，然后自动跑 `genmodules` + `wails build`。
+列出模块让你按编号挑，然后自动跑 `genmodules` + `wails build` + `packportable`。
 
 ```
 可编译的模块：
-  1) hello
-  2) netcfg
+  1) netcfg
+  2) remote
 
-输入编号选择（逗号或空格分隔），直接回车=全选，q=退出：2
+输入编号选择（逗号或空格分隔），直接回车=全选，q=退出：1
 ```
 
 输入 `1,2` / `1 2` / `1、2` 都行，重复编号会自动去重。直接回车全选，`q` 退出且不构建。
@@ -119,6 +153,30 @@ go run ./tools/pickbuild
 
 模块发现和合法性校验 pickbuild 自己不做，全部转交 `genmodules -list`，
 免得同一套规则在两个地方各写一份、日后走样。
+
+---
+
+## packportable
+
+`wails build` 只在 `build\bin` 根下丢一个 exe。绿色版要的是一整夹：exe、出厂配置、
+WebView2 缓存目录。这个工具就是把那一夹收好。
+
+```powershell
+go run ./tools/packportable
+```
+
+它会：
+
+- 把 `build\bin\<名字>.exe` 挪进 `build\bin\<名字>\`
+- 拷 remote 的三份出厂配置和 board 的出厂指令清单（`remote-config.json` /
+  `remote-io.json` / `remote-register.json` / `board-commands.json`）。
+  目录里已经有的不覆盖，重建不会冲掉现场改过的。
+- 建好 `webview2\`。程序把 WebView2 用户数据指到这里，第二次打开不用再往 `%APPDATA%` 冷启动。
+
+`build.ps1`、BuildUI 的「构建」、`pickbuild` 在 `wails build` 之后都会跑它。单独 `wails build`
+的话要自己再跑一次，否则还是孤零零一个 exe。
+
+整夹拷走就能用。netcfg 记住的地址是用出来才生成的，出厂没有可拷的。
 
 ---
 

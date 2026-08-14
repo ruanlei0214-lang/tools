@@ -1,6 +1,7 @@
 package netcfg
 
 import (
+	"embedtools/internal/module"
 	"encoding/json"
 	"log"
 	"net"
@@ -9,9 +10,7 @@ import (
 )
 
 // 记住上次连通的设备地址，下次打开直接用它，而不是回到 config.json 里的出厂地址。
-//
-// 存在 %APPDATA%\embedtools\ 而不是 exe 旁边：exe 可能被放在 Program Files 或只读
-// 共享盘上，那里写不进去。代价是拷走 exe 不会带走这份记录，但它本来就只是个便利。
+// 存在 exe 旁边，不进 %APPDATA%。现场整夹拷走时这份记录跟着走。
 const stateFileName = "netcfg-state.json"
 
 type state struct {
@@ -19,11 +18,11 @@ type state struct {
 }
 
 func stateFile() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := module.DataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "embedtools", stateFileName), nil
+	return filepath.Join(dir, stateFileName), nil
 }
 
 // loadLastHost 返回上次连通的地址，没有记录或读取失败时返回空字符串。

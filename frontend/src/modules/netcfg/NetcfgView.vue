@@ -28,10 +28,8 @@ onMounted(async () => {
     configWarning.value = s.warning
   } catch (e) {
     configWarning.value = `读取默认配置失败：${String(e)}`
-    return
   }
-  // 打开页面就连一次，省掉每次手点「测试连接」。配置没读到就没有地址可连，上面已经 return。
-  await test()
+  // 不自动连接。开机时设备还没起来，一打开就连会把整个程序卡住。
 })
 
 // 列表里是机柜面板上的口（lan1..lan5），不是系统网口。selected 存的是面板口名，
@@ -154,34 +152,34 @@ function restore() {
 <template>
   <div class="page">
     <header class="page-head">
-      <h1 class="page-title">网络配置</h1>
       <p class="page-sub">按机柜面板网口改地址：先连设备，再点可改的网口，最后下发。</p>
     </header>
 
-    <!-- ① 连接：地址在左，两个主操作按钮并排在右。「一键恢复」是现场重点工具，
+    <!-- ① 连接：标题、地址、两个主操作按钮、状态同一行。「一键恢复」是现场重点工具，
          用实心危险按钮突出，不能缩成文字链。 -->
-    <section class="panel">
-      <div class="step-label">1 · 连接设备</div>
+    <section class="panel connect-panel">
       <div class="connect-row">
-        <div class="field grow">
-          <label for="host">设备地址</label>
-          <input id="host" v-model.trim="device.host" placeholder="192.168.1.100" />
-        </div>
-        <div class="connect-actions">
-          <button class="primary connect-btn" :disabled="busy !== ''" @click="test">
-            {{ busy === 'test' ? '连接中…' : '测试连接' }}
-          </button>
-          <button class="danger connect-btn restore-btn" :disabled="busy !== ''" @click="restore">
-            {{ busy === 'restore' ? '恢复中…' : '一键恢复网络' }}
-          </button>
+        <div class="step-label">1 · 连接设备</div>
+        <input
+          id="host"
+          v-model.trim="device.host"
+          class="conn-host"
+          aria-label="设备地址"
+          placeholder="设备地址"
+        />
+        <button class="primary connect-btn" :disabled="busy !== ''" @click="test">
+          {{ busy === 'test' ? '连接中…' : '测试连接' }}
+        </button>
+        <button class="danger connect-btn restore-btn" :disabled="busy !== ''" @click="restore">
+          {{ busy === 'restore' ? '恢复中…' : '一键恢复网络' }}
+        </button>
+        <!-- 配置告警与操作结果共用这一格。下发和恢复那两条提示比较长，
+             这里截断显示，完整内容挂在 title 上，也可以直接选中复制。 -->
+        <div class="status" :class="status?.kind" :title="status?.text" aria-live="polite">
+          {{ status?.text ?? '' }}
         </div>
       </div>
     </section>
-
-    <!-- 状态栏始终占位：配置告警与操作结果共用；没有文案也留高度，下方不跟着跳。 -->
-    <div class="status-slot" :class="status ? status.kind : 'idle'" aria-live="polite">
-      {{ status?.text ?? '' }}
-    </div>
 
     <!-- ② 选口：五个面板口竖排成列表，IP 突出；可改的才像能点，只读的压暗。 -->
     <section v-if="ports.length" class="panel">
@@ -287,14 +285,8 @@ function restore() {
   margin-bottom: 12px;
 }
 
-.page-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
 .page-sub {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 12px;
   color: var(--text-dim);
   line-height: 1.4;
@@ -334,29 +326,38 @@ function restore() {
   color: var(--text-dim);
 }
 
+/* 连接区压到一行，所以内边距比别的 panel 小一圈。 */
+.connect-panel {
+  padding: 7px 10px;
+}
+
+/* 标题、地址、按钮、状态挤在一行，不折行：折了就等于又占两行，
+   压到一行的意义就没了。地址框可以被压窄，状态吃掉剩下的宽度。 */
 .connect-row {
   display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-}
-
-.field.grow {
-  flex: 1 1 220px;
-  max-width: 280px;
-}
-
-.connect-actions {
-  display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: 8px;
+}
+
+.connect-row .step-label {
+  flex: 0 0 auto;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.conn-host {
+  flex: 0 1 11rem;
+  width: 11rem;
+  padding: 4px 7px;
+  font-size: 12px;
 }
 
 .connect-btn {
   flex-shrink: 0;
-  height: 32px;
-  padding: 0 14px;
-  font-size: 13px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -508,38 +509,33 @@ function restore() {
   gap: 8px;
 }
 
-/* 固定高度状态栏：空着也占位，下方坐标不跟着闪。
-   两行文案够用；再长就内部滚动，绝不撑开把下面顶走。 */
-.status-slot {
-  box-sizing: border-box;
-  height: 40px;
-  margin-bottom: 10px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  font-size: 13px;
-  line-height: 1.35;
-  overflow: auto;
-  white-space: pre-wrap;
+/* 状态占掉连接行剩下的宽度。这一格的高度不能跟着消息变，
+   否则下面的网口列表会上下跳，所以长消息截断、完整内容挂 title。 */
+.status {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 26px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   user-select: text;
 }
 
-.status-slot.idle {
-  background: var(--bg);
-  border: 1px dashed var(--border);
-  color: transparent;
-}
-
-.status-slot.ok {
+.status.ok {
   background: var(--ok-soft);
   color: var(--ok);
 }
 
-.status-slot.err {
+.status.err {
   background: var(--err-soft);
   color: var(--err);
 }
 
-.status-slot.info {
+.status.info {
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -606,12 +602,13 @@ function restore() {
     display: none;
   }
 
+  /* 窄到这一步就允许连接区折行，否则按钮会被挤到看不见。 */
   .connect-row {
     flex-wrap: wrap;
   }
 
-  .field.grow {
-    max-width: none;
+  .status {
+    flex: 1 1 100%;
   }
 }
 </style>

@@ -3,7 +3,7 @@
 // 在仓库根目录运行：
 //
 //	go run ./tools/genmodules -profile all
-//	go run ./tools/genmodules -modules hello,netcfg   // 临时组合，不读 modules.json
+//	go run ./tools/genmodules -modules remote,netcfg  // 临时组合，不读 modules.json
 //	go run ./tools/genmodules -list                   // 只打印可用模块
 //
 // 它会扫描 internal/modules/ 与 frontend/src/modules/ 发现所有模块，按 profile

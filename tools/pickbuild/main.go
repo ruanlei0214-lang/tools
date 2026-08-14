@@ -55,8 +55,11 @@ func run() error {
 	if err := passThrough("wails", "build"); err != nil {
 		return err
 	}
+	if err := passThrough("go", "run", "./tools/packportable"); err != nil {
+		return err
+	}
 
-	fmt.Printf("\n构建完成：build\\bin\\%s（模块：%s）\n", outputName(), strings.Join(selected, " "))
+	fmt.Printf("\n构建完成：build\\bin\\%s\\（模块：%s）\n", strings.TrimSuffix(outputName(), ".exe"), strings.Join(selected, " "))
 	return nil
 }
 

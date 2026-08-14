@@ -1,0 +1,44 @@
+{
+  "id": "io",
+  "title": "IO 控制",
+  "groups": [
+    {
+      "title": "输出 DO",
+      "points": [
+        { "label": "上料前吹气", "type": "DO", "port": 0, "pulseMs": 500 },
+        { "label": "放料前吹屑", "type": "DO", "port": 1, "pulseMs": 500 },
+        { "label": "主轴启动", "type": "DO", "port": 2, "pulseMs": 500 },
+        { "label": "开门指令", "type": "DO", "port": 3, "pulseMs": 500 },
+        { "label": "关门指令", "type": "DO", "port": 4, "pulseMs": 500 },
+        { "label": "卡盘松开", "type": "DO", "port": 5, "pulseMs": 500 },
+        { "label": "卡盘夹紧", "type": "DO", "port": 6, "pulseMs": 500 },
+        { "label": "上料完成", "type": "DO", "port": 7, "pulseMs": 500 },
+        { "label": "下料完成", "type": "DO", "port": 8, "pulseMs": 500 },
+        { "label": "---", "type": "DO", "port": 9, "pulseMs": 500 },
+        { "label": "夹爪1夹紧", "type": "DO", "port": 10, "pulseMs": 500 },
+        { "label": "夹爪1松开", "type": "DO", "port": 11, "pulseMs": 500 },
+        { "label": "夹爪2夹紧", "type": "DO", "port": 12, "pulseMs": 500 },
+        { "label": "夹爪2松开", "type": "DO", "port": 13, "pulseMs": 500 }
+      ]
+    },
+    {
+      "title": "输入 DI",
+      "points": [
+        { "label": "---", "type": "DI", "port": 0, "pulseMs": 500 },
+        { "label": "---", "type": "DI", "port": 1, "pulseMs": 500 },
+        { "label": "运行状态", "type": "DI", "port": 2, "pulseMs": 500 },
+        { "label": "安全OK", "type": "DI", "port": 3, "pulseMs": 500 },
+        { "label": "请求上料", "type": "DI", "port": 4, "pulseMs": 500 },
+        { "label": "请求下料", "type": "DI", "port": 5, "pulseMs": 500 },
+        { "label": "门开到位", "type": "DI", "port": 6, "pulseMs": 500 },
+        { "label": "门关到位", "type": "DI", "port": 7, "pulseMs": 500 },
+        { "label": "卡盘夹紧到位", "type": "DI", "port": 8, "pulseMs": 500 },
+        { "label": "卡盘松开到位", "type": "DI", "port": 9, "pulseMs": 500 },
+        { "label": "夹爪1 夹紧到位", "type": "DI", "port": 10, "pulseMs": 500 },
+        { "label": "夹爪1 松开到位", "type": "DI", "port": 11, "pulseMs": 500 },
+        { "label": "夹爪2 夹紧到位", "type": "DI", "port": 12, "pulseMs": 500 },
+        { "label": "夹爪2 松开到位", "type": "DI", "port": 13, "pulseMs": 500 }
+      ]
+    }
+  ]
+}

@@ -1,34 +1,74 @@
 <script lang="ts" setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { WindowSetAlwaysOnTop } from '../wailsjs/runtime/runtime'
 import { modules } from './shell/registry'
 import { APP_NAME, APP_VERSION } from './shell/version'
 
 const activeId = ref(modules[0]?.id ?? '')
 const active = computed(() => modules.find((m) => m.id === activeId.value))
 const showAbout = ref(false)
+const alwaysOnTopKey = 'embedtools.alwaysOnTop'
+const alwaysOnTop = ref(localStorage.getItem(alwaysOnTopKey) === '1')
+
+onMounted(() => {
+  applyAlwaysOnTop(alwaysOnTop.value)
+})
+
+function toggleAlwaysOnTop() {
+  const next = !alwaysOnTop.value
+  applyAlwaysOnTop(next)
+  alwaysOnTop.value = next
+  localStorage.setItem(alwaysOnTopKey, next ? '1' : '0')
+}
+
+function applyAlwaysOnTop(on: boolean) {
+  WindowSetAlwaysOnTop(on)
+}
 </script>
 
 <template>
   <div class="shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-title">{{ APP_NAME }}</div>
-        <div class="brand-sub">{{ modules.length }} 个模块</div>
-      </div>
-      <nav class="nav">
+    <header class="topbar">
+      <nav class="top-nav" aria-label="模块">
         <button
           v-for="m in modules"
           :key="m.id"
-          class="nav-item"
+          class="module-shortcut"
           :class="{ active: m.id === activeId }"
+          :title="m.description"
           @click="activeId = m.id"
         >
-          <span class="nav-name">{{ m.name }}</span>
-          <span class="nav-desc">{{ m.description }}</span>
+          {{ m.name }}
         </button>
       </nav>
-      <button class="about-entry" @click="showAbout = true">关于</button>
-    </aside>
+      <div class="top-actions">
+        <button class="about-entry" title="关于工具箱" @click="showAbout = true">关于</button>
+        <button
+          class="topmost"
+          :class="{ active: alwaysOnTop }"
+          type="button"
+          :title="alwaysOnTop ? '取消窗口置顶' : '让窗口始终显示在最上层'"
+          :aria-label="alwaysOnTop ? '取消窗口置顶' : '窗口置顶'"
+          :aria-pressed="alwaysOnTop"
+          @click="toggleAlwaysOnTop"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path :fill="alwaysOnTop ? 'currentColor' : 'none'" d="m9 4 6 0-1 5 3 3H7l3-3-1-5Z" />
+            <path d="M12 12v8" />
+          </svg>
+        </button>
+      </div>
+    </header>
 
     <main class="content">
       <keep-alive>
@@ -73,21 +113,90 @@ const showAbout = ref(false)
 </template>
 
 <style scoped>
-.about-entry {
-  /* 顶到侧栏底部：它不是导航项，不该混在模块列表里争注意力。 */
-  margin-top: auto;
-  padding: 11px 16px;
-  border: none;
-  border-top: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  font-family: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
+.topbar {
+  display: flex;
+  align-items: center;
+  min-height: 50px;
+  padding: 7px 12px 7px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
 }
 
-.about-entry:hover {
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.module-shortcut {
+  flex: 0 0 auto;
+  padding: 7px 13px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.module-shortcut:hover:not(:disabled) {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.module-shortcut.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding-left: 10px;
+}
+
+.topmost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text-dim);
+}
+
+.topmost:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.topmost.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.topmost.active:hover:not(:disabled) {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.about-entry {
+  padding: 5px 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.about-entry:hover:not(:disabled) {
+  border-color: var(--border);
   color: var(--text);
   background: var(--bg);
 }

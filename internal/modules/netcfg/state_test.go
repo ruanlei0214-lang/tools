@@ -1,16 +1,16 @@
 package netcfg
 
 import (
+	"embedtools/internal/module"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-// isolateState 把状态文件挪到临时目录，避免测试读写开发机上的真实记录。
+// isolateState 把状态文件挪到临时目录，避免测试读写开发机上真正的那份。
 func isolateState(t *testing.T) {
 	t.Helper()
-	t.Setenv("APPDATA", t.TempDir())         // Windows
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // Linux/macOS，方便跨平台跑
+	t.Cleanup(module.UseTempDataDir(t.TempDir()))
 }
 
 func TestRememberAndLoadHost(t *testing.T) {

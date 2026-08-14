@@ -1,0 +1,11 @@
+{
+  "device": {
+    "host": "192.168.1.136",
+    "port": 22,
+    "user": "root",
+    "password": ""
+  },
+  "connectTimeoutSeconds": 8,
+  "commandTimeoutSeconds": 30,
+  "defaultPath": "/opt"
+}

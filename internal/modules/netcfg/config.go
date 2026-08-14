@@ -10,7 +10,10 @@ import (
 
 // config.json 编译进产物，改完它需要重新构建才生效。
 //
-//go:embed config.json
+// 单独放一个 config/ 目录，是为了让现场一眼看出这个模块有哪些东西是配置：
+// 模块目录里 .go 文件越堆越多之后，一个 config.json 夹在中间并不显眼。
+//
+//go:embed config/config.json
 var configJSON []byte
 
 // defaultConnectTimeout 是 connectTimeoutSeconds 省略时用的值，也是兜底配置里的值。

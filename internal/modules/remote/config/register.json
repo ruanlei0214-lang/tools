@@ -1,0 +1,26 @@
+{
+  "id": "register",
+  "title": "寄存器",
+  "groups": [
+    {
+      "title": "焊接输出",
+      "points": [
+        { "label": "机器人就绪", "type": "BOOL", "port": 10000 },
+        { "label": "寻位使能", "type": "BOOL", "port": 10001 },
+        { "label": "切换", "type": "BOOL", "port": 10002 },
+        { "label": "送气", "type": "BOOL", "port": 10003 },
+        { "label": "送丝", "type": "BOOL", "port": 10004 },
+        { "label": "退丝", "type": "BOOL", "port": 10005 },
+        { "label": "工作模式", "type": "BOOL", "port": 10006 }
+      ]
+    },
+    {
+      "title": "焊接输入",
+      "points": [
+        { "label": "焊机就绪", "type": "INT", "port": 20000 },
+        { "label": "寻位成功", "type": "INT", "port": 20001 },
+        { "label": "起弧成功", "type": "INT", "port": 20002 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+[
+  { "id": "c1", "name": "启动C2control", "command": "cd /opt/runtime/web && ./C2control" },
+  { "id": "c2", "name": "启动", "command": "cd /opt/runtime/web && ./C2control" },
+  { "id": "c3", "name": "看进程", "command": "ps -ef" },
+  { "id": "c4", "name": "重启", "command": "reboot -f" }
+]

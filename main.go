@@ -4,6 +4,8 @@ import (
 	"context"
 	"embed"
 	"log"
+	"os"
+	"path/filepath"
 
 	"embedtools/internal/module"
 	"embedtools/internal/modules"
@@ -11,6 +13,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -37,6 +40,9 @@ func main() {
 		MinHeight:        620,
 		AssetServer:      &assetserver.Options{Assets: assets},
 		BackgroundColour: &options.RGBA{R: 244, G: 245, B: 247, A: 1},
+		// WebView2 缓存放 exe 旁边：第二次打开不用再往 %APPDATA% 里冷启动，
+		// 整夹拷走缓存也跟着走。目录建不出来就让 Wails 走默认，别为此起不来。
+		Windows: &windows.Options{WebviewUserDataPath: webviewDataDir()},
 		OnStartup: func(ctx context.Context) {
 			for _, m := range mods {
 				if s, ok := m.(module.Startupper); ok {
@@ -49,4 +55,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func webviewDataDir() string {
+	dir, err := module.DataDir()
+	if err != nil {
+		return ""
+	}
+	dir = filepath.Join(dir, "webview2")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
 }

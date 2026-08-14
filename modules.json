@@ -1,6 +1,7 @@
 {
   "profiles": {
     "all": ["*"],
-    "netcfg-only": ["netcfg"]
+    "netcfg-only": ["netcfg"],
+    "board-only": ["board"]
   }
 }

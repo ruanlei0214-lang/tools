@@ -1,7 +1,8 @@
 # Estun Codroid 机器人工具箱
 
 Go + Wails v2 桌面工具，用于处理 Estun Codroid 机器人控制器（嵌入式 Linux）的日常事务。
-界面是 Vue 3 + TypeScript，依托系统 WebView2，构建产物是单个免安装 exe。
+界面是 Vue 3 + TypeScript，依托系统 WebView2。构建产物是绿色版目录：exe、配置、
+WebView2 缓存都在同一夹里，整夹拷走就能用，不用安装。
 
 每个功能是一个**独立模块**：自带后端逻辑与前端界面，模块之间不互相引用。
 
@@ -28,7 +29,8 @@ wails doctor
 ## 开发与构建
 
 ```powershell
-.\build.ps1                      # 构建全部模块，产物 build\bin\C2toolsV1.0.1.exe
+go run ./tools/buildui            # 图形界面；也可双击 tools\BuildUI.exe
+.\build.ps1                      # 构建全部模块，绿色版目录 build\bin\C2toolsV1.0.2\
 .\build.ps1 -Profile netcfg-only # 只编译指定 profile 的模块
 go run ./tools/pickbuild         # 交互式挑模块再构建，不用先定义 profile
 wails dev                        # 热重载开发，浏览器调试入口 http://localhost:34115
@@ -43,7 +45,8 @@ go test ./...                    # 后端单元测试
 {
   "profiles": {
     "all": ["*"],
-    "netcfg-only": ["netcfg"]
+    "netcfg-only": ["netcfg"],
+    "board-only": ["board"]
   }
 }
 ```
@@ -72,8 +75,9 @@ go run ./tools/pickbuild
 
 ```
 可编译的模块：
-  1) hello
+  1) board
   2) netcfg
+  3) remote
 
 输入编号选择（逗号或空格分隔），直接回车=全选，q=退出：2
 ```
@@ -86,7 +90,7 @@ go run ./tools/pickbuild
 
 ```powershell
 go run ./tools/genmodules -list                 # 打印可用模块，一行一个
-go run ./tools/genmodules -modules hello,netcfg # 直接指定组合，不读 modules.json
+go run ./tools/genmodules -modules remote,netcfg # 直接指定组合，不读 modules.json
 ```
 
 这两个参数就是挑选器用的全部东西，也可以自己直接用。
@@ -98,15 +102,22 @@ main.go                          应用入口：装配模块、启动窗口
 doc/                             各模块的说明文档，一个模块一份
 modules.json                     profile 配置：决定哪些模块进入产物
 build.ps1                        按 profile 生成接线代码并构建
+tools/BuildUI.exe                构建小窗口（双击即可）
+tools/buildui/                   构建小窗口（Go）
 tools/genmodules/                接线代码生成器
 tools/pickbuild/                 交互式挑模块并构建
+tools/packportable/              把 exe 收成绿色版目录
 internal/module/                 模块接入契约（Module 接口）
 internal/modules/modules_gen.go  生成的后端接线，勿手改
 internal/modules/boundary_test.go 模块独立性检查
 internal/modules/netcfg/         网络配置模块（后端）
+internal/modules/remote/         远程控制模块（后端）
+internal/modules/board/          主板控制模块（后端）
 frontend/src/shell/registry.ts   前端模块清单
 frontend/src/shell/modules.gen.ts 生成的前端接线，勿手改
 frontend/src/modules/netcfg/     网络配置模块（前端）
+frontend/src/modules/remote/     远程控制模块（前端）
+frontend/src/modules/board/      主板控制模块（前端）
 frontend/src/style.css           设计变量与通用控件样式
 frontend/wailsjs/                Wails 自动生成的 TS 绑定，不要手改
 ```
@@ -137,6 +148,12 @@ func (s *Service) DoSomething(arg string) (string, error) { ... }
 需要 Wails 运行时上下文（弹窗、事件等）的模块，额外实现 `Startup(ctx context.Context)` 即可，
 框架会在启动时自动调用。
 
+带配置文件的模块，配置一律放在 `internal/modules/foo/config/` 下，用
+`//go:embed config/config.json` 嵌进来。单独一个目录是为了让现场一眼找到哪些文件是给人改的——
+模块目录里 `.go` 文件越堆越多之后，一个 `config.json` 夹在中间并不显眼。
+配置留在模块内而不是提到仓库根目录，是模块独立约束要求的：模块被 profile 剔掉时，
+它的配置得跟着一起消失。
+
 **前端**：新建目录 `frontend/src/modules/foo/`，放入 `module.ts` 和视图组件。
 
 ```ts
@@ -152,7 +169,7 @@ export default {
 } satisfies ModuleManifest
 ```
 
-`version` 是这个模块自己的版本号，和别的模块无关，现场在侧栏底部「关于」里能看到。
+`version` 是这个模块自己的版本号，和别的模块无关，现场在顶部右侧「关于」里能看到。
 约定见 [doc/README.md](doc/README.md#版本号)。
 
 最后跑一次生成器把新模块接进来：
@@ -179,10 +196,28 @@ import { DoSomething } from '../../../wailsjs/go/foo/Service'
 
 ## 已有模块
 
-### Hello World（hello）
+### 远程控制（remote）
 
-模块框架的最小示例，一共三个文件，可以直接照着它加新模块。演示了前端如何调用本模块的
-Go 方法并显示返回值。
+通过远程模式接口控制上位机的 IO 与寄存器。传输层是 WebSocket（默认
+`ws://192.168.1.136:9000/`），报文沿用接口文档的 `{"id","ty","db"}` 结构。
+
+- 点位和连接参数都在界面上改，改完立即生效，不用动代码也不用重新构建；
+  现场配置存在 exe 同目录，编译进产物的那三份 JSON 是出厂默认，可逐份恢复。
+  IO / 寄存器点位也可以用操作栏的导入导出换一份 JSON
+- 开关量（DI/DO/BOOL）点一下翻转（先读回当前值再写反的）；非开关量（AO/INT/FLOAT）
+  在行内填一个值再「下发」；配了 `pulseMs` 的点位还多一个点动（写完等一会儿自动恢复）
+- 一条长连接跑到底，连接状态显式显示，不做自动重连；改了地址也要自己点「重新连接」
+
+### 主板控制（board）
+
+通过 SSH 在控制器主板上跑自定义指令、上传下载文件（默认 `root@192.168.1.136:22`，空密码）。
+
+- 连接后自动打开 SSH 执行终端，点进画面即可直接打字、回车、退格，也可发送 Ctrl+C
+- 常用命令存成按钮，点击后送入同一个终端；出厂清单编在产物里，现场改过的存在
+  exe 同目录的 `board-commands.json`，也可以导入导出
+- 文件操作走 SFTP：不解析 `ls` 的输出，用户填的路径也不会被拼进任何一条 shell 命令
+- 上传先写 `.tmp`、下载先写 `.part`，核对无误后才顶替目标，中途断了不留半个文件
+- 指令与文件共用一条 SSH 连接，连接断了后台立刻知道，界面跟着退回未连接
 
 ### 网络配置（netcfg）
 

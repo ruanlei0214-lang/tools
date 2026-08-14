@@ -42,12 +42,20 @@ export function ListDir(arg1) {
   return window['go']['board']['Service']['ListDir'](arg1);
 }
 
+export function PickKeyFile() {
+  return window['go']['board']['Service']['PickKeyFile']();
+}
+
 export function PickLocalFile() {
   return window['go']['board']['Service']['PickLocalFile']();
 }
 
 export function PickSaveTarget(arg1) {
   return window['go']['board']['Service']['PickSaveTarget'](arg1);
+}
+
+export function ReadRemoteText(arg1) {
+  return window['go']['board']['Service']['ReadRemoteText'](arg1);
 }
 
 export function ReadTerminal() {

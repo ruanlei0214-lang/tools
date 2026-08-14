@@ -6,19 +6,21 @@ import {
   ImportCommands,
   ListCommands,
   ReadTerminal,
-  ResetCommands,
   RunCommandInTerminal,
   SaveCommands,
   StartTerminal,
   WriteTerminal,
 } from '../../../wailsjs/go/board/Service'
 import type { board } from '../../../wailsjs/go/models'
+import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{ connected: boolean }>()
-const emit = defineEmits<{ (e: 'refresh-status'): void }>()
+const emit = defineEmits<{
+  (e: 'refresh-status'): void
+  (e: 'cwd', path: string): void
+}>()
 
 const commands = ref<board.Command[]>([])
-const filePath = ref('')
 const listWarning = ref('')
 const busy = ref('')
 const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
@@ -32,19 +34,26 @@ let terminalStart: Promise<void> | null = null
 let writeChain = Promise.resolve()
 let composing = false
 let skipNextKey = false
+let escapeHold = ''
+let cwd = '/root'
+let lastCdLine = ''
 
 // 编辑中的那一条。id 为空表示新增。
 const draft = reactive({ id: '', name: '', command: '' })
 const editing = ref(false)
 
 const canEdit = computed(() => draft.name.trim() !== '' && draft.command.trim() !== '')
+const menu = ref<{ x: number; y: number; cmd: board.Command } | null>(null)
+const menuItems: MenuItem[] = [
+  { id: 'edit', label: '编辑' },
+  { id: 'delete', label: '删除', danger: true },
+]
 
 // 清单在本机文件里，读它不需要连接，所以一进来就读。
 onMounted(async () => {
   try {
     const list = await ListCommands()
     commands.value = list.commands ?? []
-    filePath.value = list.path
     listWarning.value = list.warning
   } catch (e) {
     listWarning.value = `读取按钮清单失败：${String(e)}`
@@ -68,6 +77,7 @@ watch(
       })
     } else {
       terminalReady.value = false
+      escapeHold = ''
     }
   },
   { immediate: true },
@@ -95,7 +105,6 @@ function run(c: board.Command) {
   return act(`run-${c.id}`, async () => {
     await ensureTerminal()
     await RunCommandInTerminal(c.id)
-    banner.value = { kind: 'ok', text: `${c.name} 已发送到终端` }
     await pullTerminal()
     terminalCapture.value?.focus()
   })
@@ -123,6 +132,7 @@ async function pullTerminal() {
     const chunk = await ReadTerminal()
     if (!chunk) return
     appendTerminal(chunk)
+    noteCwdFromOutput()
     if (chunk.includes('[终端已关闭')) {
       terminalReady.value = false
     }
@@ -140,10 +150,8 @@ async function pullTerminal() {
 }
 
 function appendTerminal(chunk: string) {
-  const clean = chunk
-    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g, '')
-    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\r\n/g, '\n')
+  const raw = holdIncompleteEscape(escapeHold + chunk)
+  const clean = sanitizeTerminal(raw).replace(/\r\n/g, '\n')
   let s = terminalOutput.value
   for (const ch of clean) {
     if (ch === '\b' || ch === '\x7f') {
@@ -156,6 +164,63 @@ function appendTerminal(chunk: string) {
     }
   }
   terminalOutput.value = s.slice(-200_000)
+}
+
+// Tab 补全常夹着响铃、半截 CSI、8 位 C1。漏掉就会在 cd /opt/ 后面冒出一个问号方块。
+function sanitizeTerminal(s: string) {
+  return s
+    .replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\u001B[@-Z\\-_]/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u0080-\u009F\uFFFD]/g, '')
+}
+
+function holdIncompleteEscape(s: string) {
+  const esc = s.lastIndexOf('\u001B')
+  if (esc < 0) {
+    escapeHold = ''
+    return s
+  }
+  const tail = s.slice(esc)
+  if (/^\u001B(?:$|\[(?:[0-?]*[ -/]*)?|\][^\u0007\u001B]*)$/.test(tail)) {
+    escapeHold = tail
+    return s.slice(0, esc)
+  }
+  escapeHold = ''
+  return s
+}
+
+function noteCwdFromOutput() {
+  const lines = terminalOutput.value.split('\n')
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--) {
+    const m = lines[i].match(/#\s+cd(?:\s+(.+?))?\s*$/)
+    if (!m) continue
+    if (lines[i] === lastCdLine) return
+    lastCdLine = lines[i]
+    const next = resolveCd(m[1] ?? '')
+    if (next && next !== cwd) {
+      cwd = next
+      emit('cwd', next)
+    }
+    return
+  }
+}
+
+function resolveCd(arg: string) {
+  let a = arg.trim().replace(/^['"]|['"]$/g, '')
+  if (!a || a === '~' || a === '$HOME') return '/root'
+  if (a === '-') return cwd
+  if (a.startsWith('~/')) a = `/root/${a.slice(2)}`
+  if (!a.startsWith('/')) {
+    a = `${cwd === '/' ? '' : cwd}/${a}`
+  }
+  const parts: string[] = []
+  for (const p of a.split('/')) {
+    if (!p || p === '.') continue
+    if (p === '..') parts.pop()
+    else parts.push(p)
+  }
+  return `/${parts.join('/')}`
 }
 
 function sendKeys(text: string) {
@@ -315,7 +380,6 @@ function remove(c: board.Command) {
 
 function applyList(list: board.CommandList) {
   commands.value = list.commands ?? []
-  filePath.value = list.path
   listWarning.value = list.warning
 }
 
@@ -341,13 +405,16 @@ function importList() {
   })
 }
 
-function resetList() {
-  if (!window.confirm('把指令清单恢复成出厂默认？现场改过的这一份会被删掉。')) return
-  return act('reset', async () => {
-    applyList(await ResetCommands())
-    editing.value = false
-    banner.value = { kind: 'info', text: '已恢复出厂默认指令' }
-  })
+function openMenu(e: MouseEvent, c: board.Command) {
+  menu.value = { x: e.clientX, y: e.clientY, cmd: c }
+}
+
+function onMenu(id: string) {
+  const c = menu.value?.cmd
+  menu.value = null
+  if (!c) return
+  if (id === 'edit') startEdit(c)
+  if (id === 'delete') remove(c)
 }
 
 function fileName(p: string): string {
@@ -356,170 +423,132 @@ function fileName(p: string): string {
 }
 </script>
 
-<!-- 整个面板包在一个根元素里：父组件用 v-show 切标签页，而 v-show 作用在多根组件上
-     会被 Vue 丢掉，两个面板就会同时显示。 -->
 <template>
-  <div>
-    <section class="card command-card">
-      <div class="command-toolbar">
-        <button class="add-command" :disabled="!!busy" @click="startAdd">
-          <span aria-hidden="true">＋</span> 添加
-        </button>
-        <button :disabled="!!busy" title="把当前清单存成 JSON 文件" @click="exportList">
-          {{ busy === 'export' ? '导出中…' : '导出' }}
-        </button>
-        <button :disabled="!!busy" title="从 JSON 文件替换当前清单" @click="importList">
-          {{ busy === 'import' ? '导入中…' : '导入' }}
-        </button>
-        <button :disabled="!!busy" title="删掉现场清单，退回出厂默认" @click="resetList">
-          {{ busy === 'reset' ? '恢复中…' : '恢复默认' }}
-        </button>
-        <div class="status" :class="banner?.kind" :title="banner?.text">{{ banner?.text }}</div>
+  <section class="card command-card">
+    <div class="command-toolbar">
+      <button class="add-command" :disabled="!!busy" @click="startAdd">＋</button>
+      <button :disabled="!!busy" title="导出" @click="exportList">导出</button>
+      <button :disabled="!!busy" title="导入" @click="importList">导入</button>
+      <div v-if="banner || listWarning" class="status" :class="banner?.kind || 'err'" :title="banner?.text || listWarning">
+        {{ banner?.text || listWarning }}
       </div>
+    </div>
 
-      <div v-if="listWarning" class="banner err warn">{{ listWarning }}</div>
+    <div v-if="editing" class="editor-row">
+      <input
+        v-model="draft.name"
+        class="editor-name"
+        aria-label="名称"
+        placeholder="名称"
+        autofocus
+        :disabled="!!busy"
+        @keyup.enter="canEdit && save()"
+        @keyup.esc="editing = false"
+      />
+      <input
+        v-model="draft.command"
+        class="editor-command"
+        aria-label="命令"
+        placeholder="命令"
+        :disabled="!!busy"
+        @keyup.enter="canEdit && save()"
+        @keyup.esc="editing = false"
+      />
+      <button class="primary editor-action" :disabled="!!busy || !canEdit" @click="save">保存</button>
+      <button class="editor-action" :disabled="!!busy" @click="editing = false">取消</button>
+    </div>
 
-      <div v-if="editing" class="editor-row">
-        <span class="editor-mode">{{ draft.id ? '编辑' : '新增' }}</span>
-        <input
-          v-model="draft.name"
-          class="editor-name"
-          aria-label="按钮名称"
-          placeholder="按钮名称"
-          autofocus
-          :disabled="!!busy"
-          @keyup.enter="canEdit && save()"
-          @keyup.esc="editing = false"
+    <div v-if="commands.length" class="cmd-grid">
+      <button
+        v-for="c in commands"
+        :key="c.id"
+        class="cmd-run"
+        :disabled="!connected || !!busy"
+        :title="c.command"
+        @click="run(c)"
+        @contextmenu.prevent="openMenu($event, c)"
+      >
+        {{ busy === `run-${c.id}` ? '…' : c.name }}
+      </button>
+    </div>
+    <ContextMenu
+      v-if="menu"
+      :x="menu.x"
+      :y="menu.y"
+      :items="menuItems"
+      @pick="onMenu"
+      @close="menu = null"
+    />
+
+    <div class="terminal-panel">
+      <div class="terminal-head">
+        <span class="terminal-title">终端</span>
+        <span class="terminal-state" :class="{ online: terminalReady }">
+          {{ terminalReady ? '已打开' : connected ? '…' : '未连接' }}
+        </span>
+        <button class="terminal-tool" :disabled="!connected" @click="sendCtrlC">Ctrl+C</button>
+        <button class="terminal-tool" :disabled="!connected || !!busy" @click="reopenTerminal">重开</button>
+        <button class="terminal-tool" :disabled="!terminalOutput" @click="terminalOutput = ''">清屏</button>
+      </div>
+      <div class="terminal-body" @click="focusCapture">
+        <pre ref="terminalScreen" class="terminal-screen" :class="{ live: terminalReady }">{{ terminalOutput }}</pre>
+        <textarea
+          ref="terminalCapture"
+          class="terminal-capture"
+          aria-label="终端输入"
+          autocomplete="off"
+          spellcheck="false"
+          :disabled="!connected"
+          @keydown="onTerminalKey"
+          @beforeinput="onBeforeInput"
+          @compositionstart="onCompositionStart"
+          @compositionend="onCompositionEnd"
         />
-        <input
-          v-model="draft.command"
-          class="editor-command"
-          aria-label="执行命令"
-          placeholder="命令，例如 /opt/autorun.sh restart"
-          :disabled="!!busy"
-          @keyup.enter="canEdit && save()"
-          @keyup.esc="editing = false"
-        />
-        <button class="primary editor-action" :disabled="!!busy || !canEdit" @click="save">
-          {{ busy === 'save' ? '保存中…' : '保存' }}
-        </button>
-        <button class="editor-action" :disabled="!!busy" @click="editing = false">取消</button>
       </div>
-
-      <p v-if="!commands.length" class="empty command-empty">还没有指令，点「添加」或「导入」。</p>
-      <div v-else class="cmd-grid">
-        <div v-for="c in commands" :key="c.id" class="cmd">
-          <button
-            class="cmd-run"
-            :disabled="!connected || !!busy"
-            :title="connected ? c.command : '尚未连接主板'"
-            @click="run(c)"
-          >
-            {{ busy === `run-${c.id}` ? '执行中…' : c.name }}
-          </button>
-          <button
-            class="cmd-icon"
-            :disabled="!!busy"
-            :aria-label="`编辑 ${c.name}`"
-            title="编辑"
-            @click="startEdit(c)"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20Z" />
-              <path d="m13.5 7 3.5 3.5" />
-            </svg>
-          </button>
-          <button
-            class="cmd-icon cmd-delete"
-            :disabled="!!busy"
-            :aria-label="`删除 ${c.name}`"
-            title="删除"
-            @click="remove(c)"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="command-foot">
-        <span>编辑清单不需要连接，执行时才需要。</span>
-        <span v-if="filePath" class="config-file" :title="filePath">清单保存在本机</span>
-      </div>
-
-      <div class="terminal-panel">
-        <div class="terminal-head">
-          <span class="terminal-title">执行终端</span>
-          <span class="terminal-state" :class="{ online: terminalReady }">
-            {{ terminalReady ? '已打开' : connected ? '正在打开…' : '未连接' }}
-          </span>
-          <button
-            class="terminal-tool"
-            :disabled="!connected"
-            title="向终端发送 Ctrl+C，停止当前命令"
-            @click="sendCtrlC"
-          >
-            Ctrl+C
-          </button>
-          <button class="terminal-tool" :disabled="!connected || !!busy" @click="reopenTerminal">重开</button>
-          <button class="terminal-tool" :disabled="!terminalOutput" @click="terminalOutput = ''">清屏</button>
-        </div>
-        <div class="terminal-body" @click="focusCapture">
-          <pre ref="terminalScreen" class="terminal-screen" :class="{ live: terminalReady }">{{
-            terminalOutput ||
-            (connected ? '点这里后直接输入…' : '连接主板后可使用终端')
-          }}</pre>
-          <textarea
-            ref="terminalCapture"
-            class="terminal-capture"
-            aria-label="终端输入"
-            autocomplete="off"
-            spellcheck="false"
-            :disabled="!connected"
-            @keydown="onTerminalKey"
-            @beforeinput="onBeforeInput"
-            @compositionstart="onCompositionStart"
-            @compositionend="onCompositionEnd"
-          />
-        </div>
-      </div>
-    </section>
-  </div>
+    </div>
+  </section>
 </template>
 
 <style scoped>
 .command-card {
-  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
 }
 
 .command-toolbar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.command-toolbar button {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .add-command {
-  flex: 0 0 auto;
-  padding: 5px 9px;
   color: var(--accent);
 }
 
-/* 操作结果放进工具行，不额外占一整条。 */
 .status {
   flex: 1 1 auto;
   min-width: 0;
-  height: 28px;
+  height: 26px;
   margin-left: auto;
-  padding: 0 10px;
-  border-radius: 6px;
+  padding: 0 8px;
+  border-radius: 5px;
   overflow: hidden;
   font-size: 12px;
-  line-height: 28px;
+  line-height: 26px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  user-select: text;
 }
 
 .status.ok {
@@ -537,124 +566,74 @@ function fileName(p: string): string {
   color: var(--accent);
 }
 
-.warn {
-  margin-bottom: 8px;
-  padding: 6px 8px;
-}
-
 .editor-row {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  padding: 7px;
-  border: 1px solid var(--accent);
-  border-radius: 7px;
-  background: var(--accent-soft);
+  gap: 4px;
+  margin-bottom: 6px;
 }
 
 .editor-row input {
-  padding: 6px 8px;
-}
-
-.editor-mode {
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
+  padding: 4px 6px;
+  font-size: 12px;
 }
 
 .editor-name {
-  flex: 0 1 10rem;
-  min-width: 7rem;
+  flex: 0 1 7rem;
+  min-width: 5rem;
 }
 
 .editor-command {
-  flex: 1 1 18rem;
-  min-width: 10rem;
+  flex: 1 1 10rem;
+  min-width: 6rem;
   font-family: ui-monospace, Consolas, monospace;
 }
 
 .editor-action {
   flex: 0 0 auto;
-  padding: 6px 10px;
-}
-
-.command-empty {
-  margin: 10px 0;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .cmd-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 6px;
-}
-
-.cmd {
   display: flex;
-  gap: 3px;
-  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 4.6rem;
+  margin-bottom: 6px;
+  overflow: auto;
 }
 
 .cmd-run {
-  flex: 1 1 auto;
   min-width: 0;
-  padding: 7px 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-height: 26px;
+  padding: 0 8px;
+  border-color: #93b4f8;
+  background: #2563eb;
+  color: #fff;
+  font-size: 12px;
 }
 
-.cmd-icon {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 31px;
-  padding: 0;
-  color: var(--text-dim);
+.cmd-run:hover:not(:disabled) {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #fff;
 }
 
-.cmd-icon svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.cmd-icon:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.cmd-delete:hover:not(:disabled) {
-  border-color: var(--err);
-  color: var(--err);
-}
-
-.command-foot {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-  padding-top: 7px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.config-file {
-  flex: 0 0 auto;
-  cursor: help;
-  text-decoration: underline dotted;
-  text-underline-offset: 2px;
+.cmd-run:disabled {
+  border-color: #c5d4f5;
+  background: #9bb6ee;
+  color: #eef3fc;
 }
 
 .terminal-panel {
-  margin-top: 9px;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid #303640;
   border-radius: 7px;
@@ -663,10 +642,11 @@ function fileName(p: string): string {
 
 .terminal-head {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  min-height: 31px;
-  padding: 4px 6px 4px 10px;
+  min-height: 28px;
+  padding: 3px 6px 3px 10px;
   border-bottom: 1px solid #303640;
   background: #20242b;
 }
@@ -688,8 +668,8 @@ function fileName(p: string): string {
 }
 
 .terminal-tool {
-  min-height: 23px;
-  padding: 2px 7px;
+  min-height: 22px;
+  padding: 0 7px;
   border-color: #424955;
   background: #2a2f38;
   color: #cbd5e1;
@@ -703,12 +683,14 @@ function fileName(p: string): string {
 
 .terminal-body {
   position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .terminal-screen {
-  height: 248px;
+  height: 100%;
   margin: 0;
-  padding: 9px 11px;
+  padding: 8px 10px;
   overflow: auto;
   background: #111318;
   color: #d8dee9;
@@ -748,17 +730,6 @@ function fileName(p: string): string {
 @keyframes terminal-blink {
   50% {
     opacity: 0;
-  }
-}
-
-@media (max-width: 720px) {
-  .editor-row {
-    flex-wrap: wrap;
-  }
-
-  .editor-name,
-  .editor-command {
-    flex: 1 1 100%;
   }
 }
 </style>

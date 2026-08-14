@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -31,20 +32,14 @@ func dial(d Device, timeout time.Duration) (*ssh.Client, error) {
 		port = defaultPort
 	}
 
+	auth, err := authMethods(d)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &ssh.ClientConfig{
 		User: user,
-		Auth: []ssh.AuthMethod{
-			// 空密码就是这台设备的真实状态，照原样送出去，不在本地拦。
-			ssh.Password(d.Password),
-			// 有些轻量 SSH 服务只开 keyboard-interactive，把同一个密码答回去。
-			ssh.KeyboardInteractive(func(_, _ string, questions []string, _ []bool) ([]string, error) {
-				answers := make([]string, len(questions))
-				for i := range answers {
-					answers[i] = d.Password
-				}
-				return answers, nil
-			}),
-		},
+		Auth: auth,
 		// 内网嵌入式设备通常没有稳定的主机密钥，而且它的 IP 可能刚被 netcfg 改过。
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         timeout,
@@ -56,6 +51,51 @@ func dial(d Device, timeout time.Duration) (*ssh.Client, error) {
 		return nil, fmt.Errorf("连接 %s 失败: %w", addr, err)
 	}
 	return client, nil
+}
+
+func authMethods(d Device) ([]ssh.AuthMethod, error) {
+	var auth []ssh.AuthMethod
+	if path := strings.TrimSpace(d.KeyPath); path != "" {
+		signer, err := loadSigner(path, d.Password)
+		if err != nil {
+			return nil, err
+		}
+		auth = append(auth, ssh.PublicKeys(signer))
+	}
+	auth = append(auth,
+		ssh.Password(d.Password),
+		ssh.KeyboardInteractive(func(_, _ string, questions []string, _ []bool) ([]string, error) {
+			answers := make([]string, len(questions))
+			for i := range answers {
+				answers[i] = d.Password
+			}
+			return answers, nil
+		}),
+	)
+	return auth, nil
+}
+
+func loadSigner(path, passphrase string) (ssh.Signer, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("读取密钥失败: %w", err)
+	}
+	signer, err := ssh.ParsePrivateKey(raw)
+	if err == nil {
+		return signer, nil
+	}
+	var missing *ssh.PassphraseMissingError
+	if errors.As(err, &missing) || strings.Contains(err.Error(), "passphrase") {
+		if passphrase == "" {
+			return nil, errors.New("密钥受密码保护，请在密码框里填密钥口令")
+		}
+		signer, err = ssh.ParsePrivateKeyWithPassphrase(raw, []byte(passphrase))
+		if err != nil {
+			return nil, fmt.Errorf("密钥口令不对或密钥无法解析: %w", err)
+		}
+		return signer, nil
+	}
+	return nil, fmt.Errorf("解析密钥失败: %w", err)
 }
 
 // dialWithin 在 timeout 内走完 TCP 建连 + SSH 握手 + 认证，超时就放弃。

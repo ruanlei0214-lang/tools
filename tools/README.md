@@ -42,6 +42,7 @@ go run ./tools/buildui
 - **构建** —— `genmodules` + `wails build` + `packportable`（绿色版目录）
 - **开发模式** —— `genmodules` + `wails dev`（一直跑，点「停止」结束）
 - **运行软件** —— 启动绿色版目录里的 exe；没构建过或正在构建时点不动
+- **回写配置** —— 把绿色版目录里改过的 remote / board 配置写回源码出厂文件
 - **打开产物目录** —— `build\bin`
 
 它不替代 `build.ps1` / `pickbuild`，只是把这两条路摆到按钮上。交付给客户的组合仍然应该写成 profile。
@@ -168,13 +169,21 @@ go run ./tools/packportable
 它会：
 
 - 把 `build\bin\<名字>.exe` 挪进 `build\bin\<名字>\`
-- 拷 remote 的三份出厂配置和 board 的出厂指令清单（`remote-config.json` /
-  `remote-io.json` / `remote-register.json` / `board-commands.json`）。
+- 拷 remote 的出厂配置和 board 的出厂指令清单（`remote-config.json` /
+  `remote-io.json` / `remote-register.json` / `remote-io-flow.json` / `board-commands.json`）。
   目录里已经有的不覆盖，重建不会冲掉现场改过的。
 - 建好 `webview2\`。程序把 WebView2 用户数据指到这里，第二次打开不用再往 `%APPDATA%` 冷启动。
 
 `build.ps1`、BuildUI 的「构建」、`pickbuild` 在 `wails build` 之后都会跑它。单独 `wails build`
 的话要自己再跑一次，否则还是孤零零一个 exe。
+
+现场在界面上改好点位或指令之后，要让下次构建带着走：
+
+```powershell
+go run ./tools/packportable -writeback
+```
+
+或在 BuildUI 点「回写配置」。只写那四份出厂文件，坏 JSON 不写。`netcfg-state.json` 不回写。
 
 整夹拷走就能用。netcfg 记住的地址是用出来才生成的，出厂没有可拷的。
 

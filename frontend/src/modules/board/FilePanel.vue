@@ -1,28 +1,31 @@
 <script lang="ts" setup>
 import { computed, ref, watch } from 'vue'
 import {
-  Delete,
   Download,
   ListDir,
   PickLocalFile,
   PickSaveTarget,
+  ReadRemoteText,
+  StartTerminal,
   Upload,
+  WriteTerminal,
 } from '../../../wailsjs/go/board/Service'
 import type { board } from '../../../wailsjs/go/models'
+import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 
-const props = defineProps<{ connected: boolean; defaultPath: string }>()
+const props = defineProps<{ connected: boolean; defaultPath: string; syncPath?: string }>()
 const emit = defineEmits<{ (e: 'refresh-status'): void }>()
 
 const path = ref('')
-// listedPath 是当前这份列表来自哪个目录。上传、删除都落在它上面，
-// 而不是落在输入框里那个——输入框可能已经被改成别的目录了，只是还没点「列出」。
 const listedPath = ref('')
 const entries = ref<board.Entry[]>([])
 const selected = ref<board.Entry | null>(null)
 const busy = ref('')
 const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+const menu = ref<{ x: number; y: number; entry: board.Entry | null } | null>(null)
+const editor = ref<{ path: string; name: string; text: string } | null>(null)
+const clip = ref<{ path: string; name: string; cut: boolean } | null>(null)
 
-// 默认路径来自配置，等它到了再填进输入框。
 watch(
   () => props.defaultPath,
   (p) => {
@@ -31,7 +34,53 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.connected,
+  (ok) => {
+    if (ok && path.value.trim() && !listedPath.value) void list()
+  },
+)
+
+watch(
+  () => props.syncPath,
+  (p) => {
+    const next = (p ?? '').replace(/\/+$/, '') || '/'
+    if (!p || !props.connected || next === listedPath.value) return
+    void list(next)
+  },
+)
+
 const canOperate = computed(() => props.connected && !busy.value)
+
+const menuItems = computed<MenuItem[]>(() => {
+  const e = menu.value?.entry
+  if (!e) {
+    return [
+      { id: 'paste', label: '粘贴', disabled: !clip.value || !listedPath.value },
+      { id: 'mkdir', label: '新建文件夹', disabled: !listedPath.value },
+      { id: 'upload', label: '上传' },
+      { id: 'refresh', label: '刷新' },
+    ]
+  }
+  if (e.isDir) {
+    return [
+      { id: 'open', label: '打开' },
+      { id: 'copy', label: '复制' },
+      { id: 'cut', label: '剪切' },
+      { id: 'paste', label: '粘贴', disabled: !clip.value },
+      { id: 'rename', label: '重命名' },
+      { id: 'delete', label: '删除', danger: true },
+    ]
+  }
+  return [
+    { id: 'edit', label: '编辑' },
+    { id: 'copy', label: '复制' },
+    { id: 'cut', label: '剪切' },
+    { id: 'rename', label: '重命名' },
+    { id: 'download', label: '下载' },
+    { id: 'delete', label: '删除', danger: true },
+  ]
+})
 
 async function act(op: string, fn: () => Promise<void>) {
   busy.value = op
@@ -45,38 +94,66 @@ async function act(op: string, fn: () => Promise<void>) {
   }
 }
 
-function list() {
+function list(dir?: string) {
+  const next = (dir ?? path.value).trim()
+  if (!next) return
+  path.value = next
   return act('list', async () => {
-    const dir = path.value.trim()
-    const rows = await ListDir(dir)
+    const rows = await ListDir(next)
     entries.value = rows
-    listedPath.value = dir
+    listedPath.value = next
     selected.value = null
-    banner.value = rows.length
-      ? { kind: 'ok', text: `${dir}：${rows.length} 个条目` }
-      : { kind: 'info', text: `${dir} 是空目录` }
+    banner.value = null
   })
 }
 
-// 双击目录进去。手打路径太累，而这是列表里唯一还算显然的下钻方式。
 function open(e: board.Entry) {
-  if (!e.isDir) return
-  path.value = joinPath(listedPath.value, e.name)
-  return list()
+  if (!e.isDir) {
+    void startEdit(e)
+    return
+  }
+  return list(joinPath(listedPath.value, e.name))
+}
+
+function goUp() {
+  if (!listedPath.value || listedPath.value === '/') return
+  return list(parentPath(listedPath.value))
 }
 
 function joinPath(dir: string, name: string) {
+  if (!dir || dir === '/') return `/${name}`
   return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`
+}
+
+function parentPath(dir: string) {
+  const t = dir.replace(/\/+$/, '') || '/'
+  if (t === '/') return '/'
+  const i = t.lastIndexOf('/')
+  return i <= 0 ? '/' : t.slice(0, i)
+}
+
+function shQuote(s: string) {
+  return `'${s.replace(/'/g, `'"'"'`)}'`
+}
+
+function remoteOf(e: board.Entry) {
+  return joinPath(listedPath.value, e.name)
+}
+
+async function sendShell(cmd: string) {
+  await StartTerminal()
+  await WriteTerminal(cmd.endsWith('\n') ? cmd : `${cmd}\n`)
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 }
 
 function upload() {
   return act('upload', async () => {
-    if (!listedPath.value) {
-      throw new Error('先列出一个目录，再往里上传')
-    }
+    if (!listedPath.value) throw new Error('先打开一个目录，再往里上传')
     const local = await PickLocalFile()
     if (!local) return
-
     let res = await Upload(local, listedPath.value, false)
     if (res.needsConfirm) {
       if (!window.confirm(`设备上已有同名文件，覆盖它？\n\n${res.remotePath}`)) {
@@ -90,45 +167,179 @@ function upload() {
   })
 }
 
-function download() {
-  const row = selected.value
-  if (!row) return
+function download(row = selected.value) {
+  if (!row || row.isDir) return
   return act('download', async () => {
-    if (row.isDir) {
-      throw new Error(`${row.name} 是目录，不支持下载目录`)
-    }
     const local = await PickSaveTarget(row.name)
     if (!local) return
-
-    const remote = joinPath(listedPath.value, row.name)
-    await Download(remote, local)
+    await Download(remoteOf(row), local)
     banner.value = { kind: 'ok', text: `已保存到 ${local}` }
   })
 }
 
-function remove() {
-  const row = selected.value
-  if (!row) return
-  const remote = joinPath(listedPath.value, row.name)
-  // 确认框里放完整远端路径：光看文件名分不清删的是哪个目录下的那一个。
-  if (!window.confirm(`删除设备上的这个文件？\n\n${remote}`)) {
+function copy(e: board.Entry) {
+  clip.value = { path: remoteOf(e), name: e.name, cut: false }
+  banner.value = { kind: 'info', text: `已复制 ${e.name}` }
+}
+
+function cut(e: board.Entry) {
+  clip.value = { path: remoteOf(e), name: e.name, cut: true }
+  banner.value = { kind: 'info', text: `已剪切 ${e.name}` }
+}
+
+function pasteName(intoDir: string) {
+  if (!clip.value) return ''
+  const exists = intoDir === listedPath.value && entries.value.some((x) => x.name === clip.value?.name)
+  if (!exists) return clip.value.name
+  const dot = clip.value.name.lastIndexOf('.')
+  if (dot > 0) return `${clip.value.name.slice(0, dot)}-副本${clip.value.name.slice(dot)}`
+  return `${clip.value.name}-副本`
+}
+
+function paste(into?: board.Entry) {
+  if (!clip.value) return
+  const destDir = into?.isDir ? remoteOf(into) : listedPath.value
+  if (!destDir) return
+  const dest = joinPath(destDir, pasteName(destDir))
+  if (dest === clip.value.path) {
+    banner.value = { kind: 'info', text: '源和目标相同' }
     return
   }
-  return act('delete', async () => {
-    await Delete(remote)
-    banner.value = { kind: 'ok', text: `已删除 ${remote}` }
+  const op = clip.value.cut ? 'mv' : 'cp -a'
+  const cmd = `${op} ${shQuote(clip.value.path)} ${shQuote(dest)}`
+  return act('paste', async () => {
+    await sendShell(cmd)
+    if (clip.value?.cut) clip.value = null
+    banner.value = { kind: 'ok', text: `已在终端执行：${cmd}` }
+    await sleep(400)
     await relist()
   })
 }
 
-// 传完、删完自动刷一次：列表已经和设备不一致了，留着旧的容易接着对错的那一行操作。
-// 重列失败不算这次操作失败——文件确实已经传/删掉了。
+function rename(e: board.Entry) {
+  const name = window.prompt('新名称', e.name)?.trim()
+  if (!name || name === e.name) return
+  if (name.includes('/') || name.includes('\\')) {
+    banner.value = { kind: 'err', text: '名称里不能有斜杠' }
+    return
+  }
+  const cmd = `mv ${shQuote(remoteOf(e))} ${shQuote(joinPath(listedPath.value, name))}`
+  return act('rename', async () => {
+    await sendShell(cmd)
+    banner.value = { kind: 'ok', text: `已在终端执行：${cmd}` }
+    await sleep(400)
+    await relist()
+  })
+}
+
+function mkdir() {
+  const name = window.prompt('文件夹名称')?.trim()
+  if (!name) return
+  if (name.includes('/') || name.includes('\\')) {
+    banner.value = { kind: 'err', text: '名称里不能有斜杠' }
+    return
+  }
+  const cmd = `mkdir -p ${shQuote(joinPath(listedPath.value, name))}`
+  return act('mkdir', async () => {
+    await sendShell(cmd)
+    banner.value = { kind: 'ok', text: `已在终端执行：${cmd}` }
+    await sleep(400)
+    await relist()
+  })
+}
+
+function remove(e: board.Entry) {
+  const remote = remoteOf(e)
+  const hint = e.isDir ? '将删除整个目录（含里面的文件）' : '删除这个文件'
+  if (!window.confirm(`${hint}？\n\n${remote}`)) return
+  const cmd = e.isDir ? `rm -rf ${shQuote(remote)}` : `rm -f ${shQuote(remote)}`
+  return act('delete', async () => {
+    await sendShell(cmd)
+    banner.value = { kind: 'ok', text: `已在终端执行：${cmd}` }
+    await sleep(400)
+    await relist()
+  })
+}
+
+function startEdit(e: board.Entry) {
+  if (e.isDir) return
+  return act('edit', async () => {
+    const remote = remoteOf(e)
+    editor.value = { path: remote, name: e.name, text: await ReadRemoteText(remote) }
+  })
+}
+
+function saveEdit() {
+  const ed = editor.value
+  if (!ed) return
+  if (ed.text.length > 48 * 1024) {
+    banner.value = { kind: 'err', text: '内容超过 48KB，请改小再保存' }
+    return
+  }
+  let delim = `C2EOF_${Date.now()}`
+  while (ed.text.includes(delim)) delim += 'X'
+  const cmd = `cat > ${shQuote(ed.path)} << '${delim}'\n${ed.text}\n${delim}`
+  return act('save-edit', async () => {
+    await sendShell(cmd)
+    editor.value = null
+    banner.value = { kind: 'ok', text: `已把 ${ed.name} 的写入命令送到终端` }
+    await sleep(400)
+    await relist()
+  })
+}
+
 async function relist() {
+  if (!listedPath.value) return
   try {
     entries.value = await ListDir(listedPath.value)
     selected.value = null
   } catch {
-    /* 保留上一条成功提示，列表下次再刷 */
+    /* 命令可能还在跑，列表下次再刷 */
+  }
+}
+
+function openMenu(e: MouseEvent, entry: board.Entry | null) {
+  if (entry) selected.value = entry
+  menu.value = { x: e.clientX, y: e.clientY, entry }
+}
+
+function onMenu(id: string) {
+  const e = menu.value?.entry
+  menu.value = null
+  switch (id) {
+    case 'open':
+      if (e) void open(e)
+      break
+    case 'edit':
+      if (e) void startEdit(e)
+      break
+    case 'copy':
+      if (e) copy(e)
+      break
+    case 'cut':
+      if (e) cut(e)
+      break
+    case 'paste':
+      void paste(e ?? undefined)
+      break
+    case 'rename':
+      if (e) rename(e)
+      break
+    case 'delete':
+      if (e) remove(e)
+      break
+    case 'download':
+      if (e) void download(e)
+      break
+    case 'mkdir':
+      mkdir()
+      break
+    case 'upload':
+      void upload()
+      break
+    case 'refresh':
+      void list()
+      break
   }
 }
 
@@ -139,84 +350,83 @@ function humanSize(n: number) {
 }
 </script>
 
-<!-- 单根元素，理由同 CommandPanel：父组件靠 v-show 切标签页。 -->
 <template>
-  <div>
-    <div class="status" :class="banner?.kind" :title="banner?.text">{{ banner?.text }}</div>
+  <section class="card explorer">
+    <div class="explorer-bar">
+      <button :disabled="!canOperate || !listedPath || listedPath === '/'" title="上一级" @click="goUp">
+        ↑
+      </button>
+      <input
+        v-model="path"
+        class="addr"
+        aria-label="路径"
+        :disabled="!!busy"
+        @keyup.enter="list()"
+      />
+      <button :disabled="!canOperate || !path.trim()" @click="list()">刷新</button>
+      <button :disabled="!canOperate || !listedPath" @click="upload">上传</button>
+      <button :disabled="!canOperate || !listedPath || !clip" @click="paste()">粘贴</button>
+    </div>
+    <div v-if="banner" class="status" :class="banner.kind" :title="banner.text">{{ banner.text }}</div>
 
-    <section class="card">
-      <div class="path-row">
-        <div class="field">
-          <label for="board-path">远端路径</label>
-          <input
-            id="board-path"
-            v-model.trim="path"
-            placeholder="/opt"
-            :disabled="!!busy"
-            @keyup.enter="list"
-          />
-        </div>
-        <button class="primary" :disabled="!canOperate || !path.trim()" @click="list">
-          {{ busy === 'list' ? '读取中…' : '列出' }}
-        </button>
-        <button :disabled="!canOperate || !listedPath" @click="upload">
-          {{ busy === 'upload' ? '上传中…' : '上传文件' }}
-        </button>
-        <button :disabled="!canOperate || !selected || selected.isDir" @click="download">
-          {{ busy === 'download' ? '下载中…' : '下载' }}
-        </button>
-        <button class="danger" :disabled="!canOperate || !selected" @click="remove">
-          {{ busy === 'delete' ? '删除中…' : '删除' }}
-        </button>
+    <div class="explorer-body" @contextmenu.prevent="openMenu($event, null)">
+      <div class="explorer-head">
+        <span>名称</span>
+        <span class="col-size">大小</span>
       </div>
+      <button
+        v-for="e in entries"
+        :key="e.name"
+        class="row"
+        :class="{ selected: selected?.name === e.name, dir: e.isDir }"
+        type="button"
+        @click="selected = e"
+        @dblclick="open(e)"
+        @contextmenu.prevent.stop="openMenu($event, e)"
+      >
+        <span class="icon" :class="e.isDir ? 'icon-dir' : 'icon-file'" aria-hidden="true" />
+        <span class="name">{{ e.name }}</span>
+        <span class="col-size">{{ e.isDir ? '' : humanSize(e.size) }}</span>
+      </button>
+      <div class="explorer-pad" />
+    </div>
 
-      <p v-if="!listedPath" class="empty list-note">填一个目录，点「列出」。</p>
-      <p v-else-if="!entries.length" class="empty list-note">{{ listedPath }} 是空目录。</p>
-      <table v-else class="list">
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th class="col-type">类型</th>
-            <th class="col-size">大小</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="e in entries"
-            :key="e.name"
-            :class="{ selected: selected?.name === e.name }"
-            @click="selected = e"
-            @dblclick="open(e)"
-          >
-            <td class="col-name" :class="{ dir: e.isDir }">{{ e.name }}</td>
-            <td class="col-type">
-              <span class="tag">{{ e.isDir ? '目录' : '文件' }}</span>
-            </td>
-            <td class="col-size">{{ e.isDir ? '—' : humanSize(e.size) }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <ContextMenu
+      v-if="menu"
+      :x="menu.x"
+      :y="menu.y"
+      :items="menuItems"
+      @pick="onMenu"
+      @close="menu = null"
+    />
 
-      <p class="hint">
-        上传落在当前列出的目录里；双击目录进去。传输没有进度条，大文件请等它自己结束。
-      </p>
-    </section>
-  </div>
+    <div v-if="editor" class="mask" @click.self="editor = null">
+      <div class="edit-box">
+        <header>{{ editor.name }}</header>
+        <textarea v-model="editor.text" spellcheck="false" />
+        <footer>
+          <button class="primary" :disabled="!!busy" @click="saveEdit">
+            {{ busy === 'save-edit' ? '写入中…' : '保存' }}
+          </button>
+          <button :disabled="!!busy" @click="editor = null">取消</button>
+        </footer>
+      </div>
+    </div>
+  </section>
 </template>
 
 <style scoped>
-/* 与 BoardView 里那条同一个道理：恒占一行，不让它进出 DOM 把下面的表格顶上顶下。 */
 .status {
-  height: 24px;
-  margin-bottom: 8px;
-  padding: 0 10px;
-  border-radius: 6px;
+  flex: 0 0 auto;
+  min-height: 22px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border-radius: 5px;
   overflow: hidden;
   font-size: 12px;
-  line-height: 24px;
+  line-height: 22px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  user-select: text;
 }
 
 .status.ok {
@@ -234,67 +444,163 @@ function humanSize(n: number) {
   color: var(--accent);
 }
 
-/* 路径和四个操作排一行。标题和输入框高度不一样，靠底对齐才不会错位。 */
-.path-row {
+.explorer {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+}
+
+.explorer-bar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.explorer-bar > button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.addr {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 7px;
+  font-size: 12px;
+}
+
+.explorer-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.explorer-head,
+.row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 5.5rem;
+  align-items: center;
   gap: 8px;
-}
-
-.path-row .field {
-  flex: 1 1 220px;
-}
-
-/* 目录可能很长，给它一个上限自己滚，别把整页撑长。 */
-.list {
-  display: block;
-  max-height: 360px;
-  margin-top: 12px;
-  overflow-y: auto;
-}
-
-.list thead,
-.list tbody,
-.list tr {
-  display: table;
   width: 100%;
-  table-layout: fixed;
+  min-height: 28px;
+  padding: 0 10px;
 }
 
-/* 表头跟着滚出去的话，滚到下面就分不清哪列是哪列了。 */
-.list thead {
+.explorer-head {
   position: sticky;
   top: 0;
-  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  background: #f7f8fa;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
-.col-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  user-select: text;
+.row {
+  border: none;
+  border-radius: 0;
+  background: none;
+  text-align: left;
 }
 
-/* 目录加粗，扫一眼就能把它们和文件分开——类型那一列是用来确认的，不是用来找的。 */
-.col-name.dir {
+.row:nth-child(odd) {
+  background: #fafbfc;
+}
+
+.explorer-pad {
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+
+.row:hover,
+.row.selected {
+  background: var(--accent-soft);
+}
+
+.row.dir .name {
   font-weight: 600;
 }
 
-.col-type {
-  width: 5rem;
+.icon {
+  width: 14px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.icon-dir {
+  background: #f5c14a;
+  box-shadow: inset 0 3px 0 #e0a020;
+}
+
+.icon-file {
+  background: #d7dde6;
+  box-shadow: inset 3px 0 0 #b7c0cc;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
 }
 
 .col-size {
-  width: 6.5rem;
+  color: var(--text-dim);
+  font-size: 12px;
   text-align: right;
 }
 
-.list-note {
-  margin: 14px 0 0;
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgb(15 23 42 / 35%);
 }
 
-.hint {
-  display: block;
-  margin-top: 12px;
+.edit-box {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: min(720px, 92vw);
+  height: min(480px, 80vh);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 20%);
+}
+
+.edit-box header {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.edit-box textarea {
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: none;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.edit-box footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 </style>

@@ -35,6 +35,8 @@ const status = computed(() => {
 })
 
 const activeTab = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null)
+const navTabs = computed(() => tabs.value.filter((t) => t.kind !== 'ioflow'))
+const flowTab = computed(() => tabs.value.find((t) => t.kind === 'ioflow') ?? null)
 
 // applyConfig 是配置进入界面的唯一入口：初次加载、保存连接参数、保存点位、恢复默认
 // 都走它，界面上那份于是永远等于后端写进去的那份。
@@ -48,9 +50,10 @@ function applyConfig(cfg: remote.Settings) {
   configDir.value = cfg.configDir
   tabs.value = cfg.tabs ?? []
   configWarning.value = cfg.warning
-  // 保存点位不该把人踢回第一页；那一页真的没了才换。
-  if (!tabs.value.some((t) => t.id === activeId.value)) {
-    activeId.value = tabs.value[0]?.id ?? ''
+  // 测试流程挂在 IO 页右侧，不当独立标签。保存点位不该把人踢回第一页。
+  const visible = (cfg.tabs ?? []).filter((t) => t.kind !== 'ioflow')
+  if (!visible.some((t) => t.id === activeId.value)) {
+    activeId.value = visible[0]?.id ?? ''
   }
 }
 
@@ -256,9 +259,9 @@ async function syncStatus() {
     </div>
   </section>
 
-  <nav v-if="tabs.length" class="tabs">
+  <nav v-if="navTabs.length" class="tabs">
     <button
-      v-for="t in tabs"
+      v-for="t in navTabs"
       :key="t.id"
       class="tab"
       :class="{ active: t.id === activeId }"
@@ -273,6 +276,7 @@ async function syncStatus() {
       v-if="activeTab.kind === 'io'"
       :key="activeTab.id"
       :tab="activeTab"
+      :flow-tab="flowTab"
       :connected="connected"
       :interval-ms="refreshIntervalMs"
       :config-dir="configDir"

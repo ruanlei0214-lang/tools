@@ -30,7 +30,7 @@ wails doctor
 
 ```powershell
 go run ./tools/buildui            # 图形界面；也可双击 tools\BuildUI.exe
-.\build.ps1                      # 构建全部模块，绿色版目录 build\bin\C2toolsV1.0.2\
+.\build.ps1                      # 构建全部模块，绿色版目录 build\bin\C2toolsV1.0.3\
 .\build.ps1 -Profile netcfg-only # 只编译指定 profile 的模块
 go run ./tools/pickbuild         # 交互式挑模块再构建，不用先定义 profile
 wails dev                        # 热重载开发，浏览器调试入口 http://localhost:34115
@@ -112,12 +112,12 @@ internal/modules/modules_gen.go  生成的后端接线，勿手改
 internal/modules/boundary_test.go 模块独立性检查
 internal/modules/netcfg/         网络配置模块（后端）
 internal/modules/remote/         远程控制模块（后端）
-internal/modules/board/          主板控制模块（后端）
+internal/modules/board/          终端模块（后端）
 frontend/src/shell/registry.ts   前端模块清单
 frontend/src/shell/modules.gen.ts 生成的前端接线，勿手改
 frontend/src/modules/netcfg/     网络配置模块（前端）
 frontend/src/modules/remote/     远程控制模块（前端）
-frontend/src/modules/board/      主板控制模块（前端）
+frontend/src/modules/board/      终端模块（前端）
 frontend/src/style.css           设计变量与通用控件样式
 frontend/wailsjs/                Wails 自动生成的 TS 绑定，不要手改
 ```
@@ -202,18 +202,19 @@ import { DoSomething } from '../../../wailsjs/go/foo/Service'
 `ws://192.168.1.136:9000/`），报文沿用接口文档的 `{"id","ty","db"}` 结构。
 
 - 点位和连接参数都在界面上改，改完立即生效，不用动代码也不用重新构建；
-  现场配置存在 exe 同目录，编译进产物的那三份 JSON 是出厂默认，可逐份恢复。
-  IO / 寄存器点位也可以用操作栏的导入导出换一份 JSON
+  现场配置存在 exe 同目录，编译进产物的出厂 JSON 可逐份恢复。
+  IO / 寄存器点位也可以用操作栏的导入导出换一份 JSON。
+  「测试流程」挂在 IO 控制右侧，从点位里选步骤，单步或按间隔连续触发，用来对节拍
 - 开关量（DI/DO/BOOL）点一下翻转（先读回当前值再写反的）；非开关量（AO/INT/FLOAT）
   在行内填一个值再「下发」；配了 `pulseMs` 的点位还多一个点动（写完等一会儿自动恢复）
 - 一条长连接跑到底，连接状态显式显示，不做自动重连；改了地址也要自己点「重新连接」
 
-### 主板控制（board）
+### 终端（board）
 
-通过 SSH 在控制器主板上跑自定义指令、上传下载文件（默认 `root@192.168.1.136:22`，空密码）。
+通过 SSH 在控制器主板上跑自定义指令、上传下载文件。界面填 IP、用户、密码，也可选本机私钥登录；端口用配置默认值。
 
-- 连接后自动打开 SSH 执行终端，点进画面即可直接打字、回车、退格，也可发送 Ctrl+C
-- 常用命令存成按钮，点击后送入同一个终端；出厂清单编在产物里，现场改过的存在
+- 连接后左边是文件、右边是终端；点进终端即可直接打字，也可发送 Ctrl+C
+- 常用命令是终端上方的小按钮，点击后送入同一个终端；出厂清单编在产物里，现场改过的存在
   exe 同目录的 `board-commands.json`，也可以导入导出
 - 文件操作走 SFTP：不解析 `ls` 的输出，用户填的路径也不会被拼进任何一条 shell 命令
 - 上传先写 `.tmp`、下载先写 `.part`，核对无误后才顶替目标，中途断了不留半个文件

@@ -1,6 +1,6 @@
 # 远程控制（remote）
 
-当前版本 **V1.3.6**，声明在 `frontend/src/modules/remote/module.ts`。
+当前版本 **V1.3.9**，声明在 `frontend/src/modules/remote/module.ts`。
 
 ## 做什么
 
@@ -38,11 +38,12 @@
 5. 输入点位默认只读（值显示成虚线框）。顶部操作栏的「一键强制」会对配置里**所有 DI** 逐路发
    `SetIOForcedFlag`，打开之后才能切换和点动。再点一次变成「取消强制」。刷新只读当前值，
    不去问强制标志。断开时把本会话打开的强制全部清掉。详见「关于强制输入」。
-6. **寄存器**标签页和 IO 同一套界面：分组、自动刷新、切换、点动、手填下发都从配置里长出来。
+6. **测试流程**在 IO 控制右侧单列，尽量少占地方。平时一行一个步骤，只显示名称（默认点动不标；ON / OFF / 下发才标出来），悬停看类型、端口和间隔。点某一步就从那里开始。「单步」触发当前高亮，「连续」按间隔接着跑，跑的时候同一个按钮变成「停止」。点「编辑」再「＋」，先选动作再点左侧点位名称加入（模拟量自动下发）。导入导出和恢复默认收在 ⋯ 里。DI 单步时会先开强制再写。
+7. **寄存器**标签页和 IO 同一套界面：分组、自动刷新、切换、点动、手填下发都从配置里长出来。
    `BOOL` 显示 ON/OFF 并可切换，`INT` 填整数下发，`FLOAT` 填数字或文本下发。读写走
    `RegisterManager/GetRegisterValue` 和 `RegisterManager/SetRegisterValue`
    （见 `doc/api_documentation/远程模式接口说明.md`）。寄存器没有强制标志，配出来的地址都可以写。
-7. 离开模块时连接会自动断开。
+8. 离开模块时连接会自动断开。
 
 ### 改点位
 
@@ -112,8 +113,8 @@
 
 | 层 | 位置 | 谁写 |
 | --- | --- | --- |
-| 现场配置 | exe 同目录的 `remote-config.json`、`remote-io.json`、`remote-register.json` | 界面上保存或导入时写，优先用 |
-| 出厂默认 | `internal/modules/remote/config/config.json`、`io.json`、`register.json` | 编译进产物，改它要重新构建 |
+| 现场配置 | exe 同目录的 `remote-config.json`、`remote-io.json`、`remote-register.json`、`remote-io-flow.json` | 界面上保存或导入时写，优先用 |
+| 出厂默认 | `internal/modules/remote/config/config.json`、`io.json`、`register.json`、`io-flow.json` | 编译进产物，改它要重新构建 |
 
 加载时三部分各自「现场那份有就用它，没有就用出厂默认」。干净的一台机器上一份现场配置都没有，
 界面和出厂默认完全一致、没有告警；界面上第一次保存才生成对应文件。「恢复默认」做的事就是
@@ -187,6 +188,26 @@
 }
 ```
 
+`io-flow.json` 管测试流程：
+
+```json
+{
+  "id": "io-flow",
+  "title": "测试流程",
+  "steps": [
+    { "label": "开门指令", "type": "DO", "port": 3, "action": "pulse", "pulseMs": 500, "delayMs": 1000 },
+    { "label": "卡盘夹紧", "type": "DO", "port": 6, "action": "on", "delayMs": 500 }
+  ]
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `action` | `pulse` 点动、`on` / `off` 置位、`set` 只给 AO。省略时 DO/DI 按 `pulse`，AO 按 `set` |
+| `pulseMs` | 点动持续时间，20–10000，省略按 300 |
+| `delayMs` | 连续跑时本步完成后再等多久，0–60000。单步只作提示 |
+| `value` | `set` 时要下发的数字 |
+
 `config.json` 顶层字段：
 
 | 字段 | 说明 |
@@ -232,7 +253,7 @@
 | `SaveDevice` | `(in: DeviceSettings) => Promise<Settings>` | 校验并落盘连接参数，回整份配置；不碰当前连接 |
 | `SavePanel` | `(tab: Tab) => Promise<Settings>` | 校验并落盘整个点位面板，回整份配置 |
 | `ResetDevice` | `() => Promise<Settings>` | 删掉现场那份连接参数，退回出厂默认 |
-| `ResetPanel` | `(kind: string) => Promise<Settings>` | 删掉现场那份点位（`io` 或 `register`），退回出厂默认 |
+| `ResetPanel` | `(kind: string) => Promise<Settings>` | 删掉现场那份（`io` / `register` / `ioflow`），退回出厂默认 |
 | `ExportPanel` | `(kind: string) => Promise<string>` | 弹出保存框，把当前这一页写成 JSON；取消返回空字符串 |
 | `ImportPanel` | `(kind: string) => Promise<PanelFileResult>` | 弹出打开框，校验后整份替换这一页；取消时 `canceled` 为真、配置不动 |
 | `Connect` | `(d: Device) => Promise<Status>` | 建 WebSocket 长连接，重复调用先断旧的 |
@@ -243,6 +264,7 @@
 | `SetIOForced` | `(point: IOPoint, forced: boolean) => Promise<void>` | `IOManager/SetIOForcedFlag`，`value` 1 打开 / 0 关掉 |
 | `SetIOForcedAll` | `(points: IOPoint[], forced: boolean) => Promise<void>` | 对一批 DI 逐路发 `SetIOForcedFlag` |
 | `PulseIO` | `(point, value, offValue, pulseMs) => Promise<void>` | 写值、等待、恢复，等待在后端 |
+| `RunFlowStep` | `(index: number) => Promise<void>` | 执行测试流程第 `index` 步（从 0 起），步骤从当前配置取 |
 | `ToggleIO` | `(point, onValue, offValue) => Promise<number>` | 读回当前值再写反的那个，返回写入值 |
 | `GetRegisters` | `(addresses: number[]) => Promise<RegisterValue[]>` | `RegisterManager/GetRegisterValue` |
 | `SetRegister` | `(address: number, value: string) => Promise<void>` | `RegisterManager/SetRegisterValue` |
@@ -320,6 +342,9 @@
   控制器不认的端口一起发出去。
 - **两页的编辑控件共用**（`PointEditor.vue` 与 `usePanelEdit.ts`）。各写一份就是让它们
   各自漂移——改了 IO 的字段顺序忘了改寄存器那边，界面立刻不一致。
+- **测试流程挂在 IO 页右侧，不当独立标签**。步骤只显示名称，点一下点位就加入；
+  导出、导入、恢复默认收进 ⋯，避免操作栏占两行。
+
 
 ## 已知限制
 
@@ -347,10 +372,12 @@ internal/modules/remote/store.go              现场配置的读、原子写、�
 internal/modules/remote/config/config.json    出厂默认：连接地址与超时
 internal/modules/remote/config/io.json        出厂默认：IO 点位
 internal/modules/remote/config/register.json  出厂默认：寄存器点位
+internal/modules/remote/config/io-flow.json   出厂默认：IO 测试流程
 frontend/src/modules/remote/module.ts         模块清单
 frontend/src/modules/remote/RemoteView.vue    连接区、连接参数编辑与标签页外壳
-frontend/src/modules/remote/IoPanel.vue       IO 点位与状态
+frontend/src/modules/remote/IoPanel.vue       IO 点位与状态，右侧挂测试流程
 frontend/src/modules/remote/RegisterPanel.vue 寄存器点位与状态
+frontend/src/modules/remote/FlowPanel.vue     IO 测试流程
 frontend/src/modules/remote/PointEditor.vue   点位编辑表单，两页共用
 frontend/src/modules/remote/usePanelEdit.ts   编辑状态与保存、恢复默认，两页共用
 ```

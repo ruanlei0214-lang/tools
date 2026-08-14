@@ -4,9 +4,9 @@
 
 | 模块 | 版本 | 文档 | 说明 |
 | --- | --- | --- | --- |
-| remote | V1.3.6 | [remote.md](remote.md) | 控制上位机 IO 与寄存器，点位和连接参数在界面上改 |
+| remote | V1.3.9 | [remote.md](remote.md) | 控制上位机 IO 与寄存器，点位和连接参数在界面上改 |
 | netcfg | V1.0.4 | [netcfg.md](netcfg.md) | 远程修改设备的 IP、掩码与网关，一键恢复网络 |
-| board | V1.1.4 | [board.md](board.md) | SSH 终端与自定义指令、SFTP 上传下载主板文件 |
+| board | V1.1.9 | [board.md](board.md) | 侧栏「终端」：SSH 终端与自定义指令、SFTP 上传下载 |
 
 新增模块时在此追加一行（含版本号），并按下面的结构写一份同名文档：
 

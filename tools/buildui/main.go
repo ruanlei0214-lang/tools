@@ -42,6 +42,7 @@ type app struct {
 	btnDev       *walk.PushButton
 	btnStop      *walk.PushButton
 	btnRun       *walk.PushButton
+	btnWriteback *walk.PushButton
 	checks       []*walk.CheckBox
 
 	mode  string
@@ -81,8 +82,8 @@ func (a *app) buildWindow() error {
 	err := MainWindow{
 		AssignTo: &a.mw,
 		Title:    "C2 工具箱 · 构建",
-		MinSize:  Size{Width: 640, Height: 520},
-		Size:     Size{Width: 740, Height: 600},
+		MinSize:  Size{Width: 720, Height: 520},
+		Size:     Size{Width: 860, Height: 600},
 		Layout:   VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 12}},
 		Children: []Widget{
 			Label{Text: "构建工具", Font: Font{Family: "Microsoft YaHei UI", PointSize: 12, Bold: true}},
@@ -129,6 +130,7 @@ func (a *app) buildWindow() error {
 					PushButton{AssignTo: &a.btnDev, Text: "开发模式", OnClicked: a.onDev},
 					PushButton{AssignTo: &a.btnStop, Text: "停止", Enabled: false, OnClicked: a.stop},
 					PushButton{AssignTo: &a.btnRun, Text: "运行软件", OnClicked: a.onRun},
+					PushButton{AssignTo: &a.btnWriteback, Text: "回写配置", OnClicked: a.onWriteback},
 					PushButton{Text: "打开产物目录", OnClicked: a.openOut},
 					HSpacer{},
 				},
@@ -423,11 +425,33 @@ func (a *app) onRun() {
 	a.appendLog("已启动 " + exe)
 }
 
+// onWriteback 把绿色版目录里改过的配置写回源码出厂文件。
+func (a *app) onWriteback() {
+	exe, ok := outputPath(a.root)
+	if !ok || !fileExists(exe) {
+		walk.MsgBox(a.mw, "构建", "还没有绿色版目录，先点「构建」。", walk.MsgBoxIconWarning)
+		return
+	}
+	msg := "把绿色版目录里改过的配置写回源码出厂文件？\n下次构建会带上这些改动。\n\n只动 remote / board 那几份，不动 netcfg 记住的地址。"
+	if walk.MsgBox(a.mw, "回写配置", msg, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion) != walk.DlgCmdYes {
+		return
+	}
+	goBin := lookPath("go")
+	if goBin == "" {
+		walk.MsgBox(a.mw, "构建", "找不到 go。请确认已安装 Go 并加入 PATH。", walk.MsgBoxIconError)
+		return
+	}
+	a.startPipeline([]step{{file: goBin, args: []string{"run", "./tools/packportable", "-writeback"}}})
+}
+
 func (a *app) setBusy(on bool) {
 	a.busy = on
 	a.btnGen.SetEnabled(!on)
 	a.btnBuild.SetEnabled(!on)
 	a.btnDev.SetEnabled(!on)
+	if a.btnWriteback != nil {
+		a.btnWriteback.SetEnabled(!on)
+	}
 	a.btnStop.SetEnabled(on)
 	a.combo.SetEnabled(!on)
 	a.profileRadio.SetEnabled(!on)
@@ -445,9 +469,16 @@ func (a *app) refreshRun() {
 		return
 	}
 	exe, ok := outputPath(a.root)
-	a.btnRun.SetEnabled(!a.busy && ok && fileExists(exe))
+	ready := !a.busy && ok && fileExists(exe)
+	a.btnRun.SetEnabled(ready)
+	if a.btnWriteback != nil {
+		a.btnWriteback.SetEnabled(ready)
+	}
 	if ok {
 		a.btnRun.SetToolTipText(exe)
+		if a.btnWriteback != nil {
+			a.btnWriteback.SetToolTipText("把 " + filepath.Dir(exe) + " 里的配置写回源码")
+		}
 	}
 }
 

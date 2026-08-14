@@ -879,3 +879,47 @@ func TestServiceExportImportNeedStartup(t *testing.T) {
 		t.Fatal("没 Startup 不该弹出导入框")
 	}
 }
+
+func TestServiceSaveFlowTakesEffect(t *testing.T) {
+	useTempConfigDir(t)
+	s := newService()
+
+	saved, err := s.SavePanel(Tab{
+		Kind:  kindIOFlow,
+		Title: "现场流程",
+		Steps: []FlowStep{{Label: "开门", Type: "do", Port: 3, Action: "pulse", PulseMs: 200}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow := findTab(saved, kindIOFlow)
+	if flow == nil || flow.Title != "现场流程" || len(flow.Steps) != 1 || flow.Steps[0].Action != "pulse" {
+		t.Fatalf("保存后没有立即生效：%+v", flow)
+	}
+	if findTab(saved, kindIO) == nil {
+		t.Fatal("IO 标签页被牵连了")
+	}
+	if flow := findTab(newService().Config(), kindIOFlow); flow == nil || flow.Title != "现场流程" {
+		t.Fatalf("没有落盘：%+v", flow)
+	}
+}
+
+func TestServiceRunFlowStepPulsesDO(t *testing.T) {
+	useTempConfigDir(t)
+	s, io := newTestService(t)
+	if _, err := s.SavePanel(Tab{
+		Kind:  kindIOFlow,
+		Steps: []FlowStep{{Label: "开门", Type: "DO", Port: 3, Action: "on"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunFlowStep(0); err != nil {
+		t.Fatal(err)
+	}
+	if io.get("DO", 3) != 1 {
+		t.Fatal("第 1 步应当把 DO3 写成 ON")
+	}
+	if err := s.RunFlowStep(1); err == nil {
+		t.Fatal("没有第 2 步")
+	}
+}

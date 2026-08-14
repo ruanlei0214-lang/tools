@@ -25,6 +25,7 @@ func TestEmbeddedConfigIsValid(t *testing.T) {
 	}
 	var points int
 	var regs int
+	var flow bool
 	for _, tab := range s.Tabs {
 		n := 0
 		for _, g := range tab.Groups {
@@ -35,6 +36,11 @@ func TestEmbeddedConfigIsValid(t *testing.T) {
 			points += n
 		case kindRegister:
 			regs += n
+		case kindIOFlow:
+			flow = true
+			if len(tab.Steps) == 0 {
+				t.Fatal("io-flow.json 里没有任何步骤")
+			}
 		}
 	}
 	if points == 0 {
@@ -42,6 +48,9 @@ func TestEmbeddedConfigIsValid(t *testing.T) {
 	}
 	if regs == 0 {
 		t.Fatal("register.json 里没有任何点位")
+	}
+	if !flow {
+		t.Fatal("加载后没有测试流程标签页")
 	}
 }
 
@@ -77,6 +86,24 @@ func TestParsePanelFillsDefaults(t *testing.T) {
 	p := tab.Groups[0].Points[0]
 	if p.Type != "BOOL" || p.Label != "BOOL10000" {
 		t.Fatalf("point=%+v", p)
+	}
+}
+
+func TestNormalizeFlowStepFillsDefaults(t *testing.T) {
+	tab := Tab{ID: "io-flow", Kind: kindIOFlow, Steps: []FlowStep{{Type: "do", Port: 3}}}
+	if err := normalizeTab(&tab, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	s := tab.Steps[0]
+	if s.Label != "DO3" || s.Action != "pulse" || s.PulseMs != defaultPulseMs || s.OnValue != 1 {
+		t.Fatalf("step=%+v", s)
+	}
+}
+
+func TestNormalizeFlowStepRejectsAI(t *testing.T) {
+	tab := Tab{ID: "io-flow", Kind: kindIOFlow, Steps: []FlowStep{{Type: "AI", Port: 0, Action: "set", Value: "1"}}}
+	if err := normalizeTab(&tab, map[string]bool{}); err == nil {
+		t.Fatal("AI 不该能进测试流程")
 	}
 }
 
@@ -423,7 +450,7 @@ func TestLoadSettingsRejectsOutOfRangeStoredDevice(t *testing.T) {
 	}
 }
 
-// 两份现场配置各写了同一个 id 时不能顶掉彼此，界面得还是两页。
+// 两份现场配置各写了同一个 id 时不能顶掉彼此，界面得还是三页（含测试流程）。
 func TestLoadSettingsHandlesDuplicateTabID(t *testing.T) {
 	useTempConfigDir(t)
 
@@ -436,8 +463,8 @@ func TestLoadSettingsHandlesDuplicateTabID(t *testing.T) {
 	}
 
 	s := loadSettings()
-	if len(s.Tabs) != 2 {
-		t.Fatalf("应当还是两页，实际 %d", len(s.Tabs))
+	if len(s.Tabs) != 3 {
+		t.Fatalf("应当还是三页，实际 %d", len(s.Tabs))
 	}
 	if s.Tabs[0].ID == s.Tabs[1].ID {
 		t.Fatalf("id 还是撞着的：%q", s.Tabs[0].ID)

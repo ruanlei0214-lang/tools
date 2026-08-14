@@ -110,6 +110,7 @@ export namespace board {
 	    port: number;
 	    user: string;
 	    password: string;
+	    keyPath: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Device(source);
@@ -121,6 +122,7 @@ export namespace board {
 	        this.port = source["port"];
 	        this.user = source["user"];
 	        this.password = source["password"];
+	        this.keyPath = source["keyPath"];
 	    }
 	}
 	export class Entry {
@@ -373,6 +375,36 @@ export namespace remote {
 		    return a;
 		}
 	}
+	export class FlowStep {
+	    label: string;
+	    type: string;
+	    port: number;
+	    action: string;
+	    value: string;
+	    onValue: number;
+	    offValue: number;
+	    pulseMs: number;
+	    delayMs: number;
+	    hint: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.type = source["type"];
+	        this.port = source["port"];
+	        this.action = source["action"];
+	        this.value = source["value"];
+	        this.onValue = source["onValue"];
+	        this.offValue = source["offValue"];
+	        this.pulseMs = source["pulseMs"];
+	        this.delayMs = source["delayMs"];
+	        this.hint = source["hint"];
+	    }
+	}
 	export class Point {
 	    label: string;
 	    type: string;
@@ -468,7 +500,8 @@ export namespace remote {
 	    title: string;
 	    kind: string;
 	    description: string;
-	    groups: Group[];
+	    groups?: Group[];
+	    steps?: FlowStep[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Tab(source);
@@ -481,6 +514,7 @@ export namespace remote {
 	        this.kind = source["kind"];
 	        this.description = source["description"];
 	        this.groups = this.convertValues(source["groups"], Group);
+	        this.steps = this.convertValues(source["steps"], FlowStep);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

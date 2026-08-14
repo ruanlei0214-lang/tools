@@ -32,6 +32,20 @@ func TestTerminalOutputIsBounded(t *testing.T) {
 	}
 }
 
+func TestDrainHoldsIncompleteUTF8(t *testing.T) {
+	terminal := &terminalSession{}
+	// “目录”的 UTF-8 是 E7 9B AE E5 BD 95，中间切开不应先吐出替换符。
+	han := []byte("目录")
+	terminal.appendOutput(han[:2])
+	if got := terminal.drain(); got != "" {
+		t.Fatalf("半个汉字不该先交出：%q", got)
+	}
+	terminal.appendOutput(han[2:])
+	if got := terminal.drain(); got != "目录" {
+		t.Fatalf("拼完应得完整汉字，得到 %q", got)
+	}
+}
+
 func TestClosedTerminalRejectsInput(t *testing.T) {
 	terminal := &terminalSession{closed: true}
 	if err := terminal.write("echo test\n"); err == nil {

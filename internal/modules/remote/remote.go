@@ -167,7 +167,7 @@ func (s *Service) ResetDevice() (Settings, error) {
 func (s *Service) ResetPanel(kind string) (Settings, error) {
 	src, ok := panelSourceByKind(kind)
 	if !ok {
-		return Settings{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s、%s", kind, kindIO, kindRegister)
+		return Settings{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s", kind, supportedKinds())
 	}
 	if err := removeStore(src.file); err != nil {
 		return Settings{}, err
@@ -217,7 +217,7 @@ func (s *Service) ImportPanel(kind string) (PanelFileResult, error) {
 	}
 	src, ok := panelSourceByKind(kind)
 	if !ok {
-		return PanelFileResult{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s、%s", kind, kindIO, kindRegister)
+		return PanelFileResult{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s", kind, supportedKinds())
 	}
 	path, err := runtime.OpenFileDialog(s.ctx, runtime.OpenDialogOptions{
 		Title:   "导入" + panelNoun(src),
@@ -241,10 +241,14 @@ func (s *Service) ImportPanel(kind string) (PanelFileResult, error) {
 }
 
 func panelNoun(src panelSource) string {
-	if src.kind == kindIO {
+	switch src.kind {
+	case kindIO:
 		return "IO 点位"
+	case kindIOFlow:
+		return "测试流程"
+	default:
+		return "寄存器点位"
 	}
-	return "寄存器点位"
 }
 
 func tabByKind(s Settings, kind string) *Tab {
@@ -260,7 +264,7 @@ func tabByKind(s Settings, kind string) *Tab {
 func (s *Service) panelBytes(kind string) ([]byte, panelSource, error) {
 	src, ok := panelSourceByKind(kind)
 	if !ok {
-		return nil, panelSource{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s、%s", kind, kindIO, kindRegister)
+		return nil, panelSource{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s", kind, supportedKinds())
 	}
 	tab := tabByKind(s.snapshot(), src.kind)
 	if tab == nil {
@@ -278,7 +282,7 @@ func (s *Service) panelBytes(kind string) ([]byte, panelSource, error) {
 func (s *Service) applyImportedPanel(kind string, raw []byte, label string) (Settings, error) {
 	src, ok := panelSourceByKind(kind)
 	if !ok {
-		return Settings{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s、%s", kind, kindIO, kindRegister)
+		return Settings{}, fmt.Errorf("不认识的标签页类型 %q，只支持 %s", kind, supportedKinds())
 	}
 	var peek struct {
 		Kind string `json:"kind"`
@@ -539,6 +543,44 @@ func (s *Service) PulseIO(point IOPoint, value, offValue float64, pulseMs int) e
 		return fmt.Errorf("%s%d 已置为 %g，但恢复失败：%v", point.Type, point.Port, value, err)
 	}
 	return nil
+}
+
+// RunFlowStep 执行测试流程里的第 index 步（从 0 起）。步骤从当前配置取，
+// 不让前端把动作再送一遍——界面上显示的和实际发出去的必须是同一份。
+func (s *Service) RunFlowStep(index int) error {
+	tab := tabByKind(s.snapshot(), kindIOFlow)
+	if tab == nil {
+		return errors.New("没有测试流程这一页")
+	}
+	if index < 0 || index >= len(tab.Steps) {
+		return fmt.Errorf("步骤 %d 不存在", index+1)
+	}
+	return s.execFlowStep(tab.Steps[index])
+}
+
+func (s *Service) execFlowStep(step FlowStep) error {
+	p := IOPoint{Type: step.Type, Port: step.Port}
+	if step.Type == "DI" {
+		if err := s.SetIOForced(p, true); err != nil {
+			return err
+		}
+	}
+	switch step.Action {
+	case "on":
+		return s.SetIO(p, step.OnValue)
+	case "off":
+		return s.SetIO(p, step.OffValue)
+	case "pulse":
+		return s.PulseIO(p, step.OnValue, step.OffValue, step.PulseMs)
+	case "set":
+		v, err := strconv.ParseFloat(step.Value, 64)
+		if err != nil {
+			return fmt.Errorf("值 %q 不是数字", step.Value)
+		}
+		return s.SetIO(p, v)
+	default:
+		return fmt.Errorf("不认识的动作 %q", step.Action)
+	}
 }
 
 // ToggleIO 先读回当前值再写反的那个，返回写进去的值。

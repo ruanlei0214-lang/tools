@@ -252,6 +252,34 @@ func TestListDirRejectsEmptyPath(t *testing.T) {
 
 // 远端是 Linux，拼出来必须是正斜杠——filepath.Join 在 Windows 上会拼出反斜杠，
 // 设备不认那种路径。
+func TestReadRemoteTextAcceptsSmallText(t *testing.T) {
+	c := testSFTP(t)
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.sh")
+	if err := os.WriteFile(p, []byte("echo hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readRemoteText(c, remotePath(dir, "a.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "echo hi\n" {
+		t.Fatalf("读到 %q", got)
+	}
+}
+
+func TestReadRemoteTextRejectsBinary(t *testing.T) {
+	c := testSFTP(t)
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.bin")
+	if err := os.WriteFile(p, []byte{1, 0, 2}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRemoteText(c, remotePath(dir, "a.bin")); err == nil {
+		t.Fatal("二进制应当被拒")
+	}
+}
+
 func TestRemoteJoinUsesForwardSlash(t *testing.T) {
 	cases := []struct {
 		dir, name, want string

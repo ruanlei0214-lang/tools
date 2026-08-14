@@ -9,14 +9,15 @@ import (
 )
 
 // 现场改出来的配置存在 exe 旁边，不进 %APPDATA%。现场整夹拷走时配置跟着走；
-// 三个文件名都带 remote- 前缀，和 board / netcfg 的现场文件不会撞。
+// 文件名都带 remote- 前缀，和 board / netcfg 的现场文件不会撞。
 //
-// 三份文件分开存，对应编译进产物的那三份出厂默认：逐份「恢复默认」不牵连另外两份，
+// 几份文件分开存，对应编译进产物的出厂默认：逐份「恢复默认」不牵连另外几份，
 // 某一份坏掉时另两份也照常可用。合成一份之后，点位表里少个逗号会把连接参数一起废掉。
 const (
 	deviceFileName   = "remote-config.json"
 	ioFileName       = "remote-io.json"
 	registerFileName = "remote-register.json"
+	ioFlowFileName   = "remote-io-flow.json"
 )
 
 // errNoOverride 表示这一份现场配置还不存在，该用编译进产物的出厂默认。

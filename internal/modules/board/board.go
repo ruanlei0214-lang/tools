@@ -337,6 +337,29 @@ func (s *Service) ListDir(dir string) ([]Entry, error) {
 	return listDir(c, dir)
 }
 
+// ReadRemoteText 读一份够小的文本文件，给文件页的编辑框用。
+func (s *Service) ReadRemoteText(remotePath string) (string, error) {
+	c, err := s.sftpClient()
+	if err != nil {
+		return "", err
+	}
+	return readRemoteText(c, remotePath)
+}
+
+// PickKeyFile 弹系统对话框选一把本机私钥，取消时返回空字符串。
+func (s *Service) PickKeyFile() (string, error) {
+	if s.ctx == nil {
+		return "", errors.New("界面还没准备好，稍后再试")
+	}
+	return runtime.OpenFileDialog(s.ctx, runtime.OpenDialogOptions{
+		Title: "选择 SSH 私钥",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "私钥", Pattern: "*.pem;*.key;id_rsa;id_ed25519;id_ecdsa;id_dsa"},
+			{DisplayName: "所有文件", Pattern: "*.*"},
+		},
+	})
+}
+
 // PickLocalFile 弹系统对话框选一个要上传的本地文件，取消时返回空字符串。
 func (s *Service) PickLocalFile() (string, error) {
 	if s.ctx == nil {

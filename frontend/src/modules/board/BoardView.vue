@@ -1,15 +1,15 @@
 <script lang="ts" setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { Config, Connect, Disconnect, Status } from '../../../wailsjs/go/board/Service'
+import { Config, Connect, Disconnect, PickKeyFile, Status } from '../../../wailsjs/go/board/Service'
 import type { board } from '../../../wailsjs/go/models'
 import CommandPanel from './CommandPanel.vue'
 import FilePanel from './FilePanel.vue'
 
-// 四项都放在界面上而不是只藏在配置里：现场换设备、换端口、换登录用户是常事。
-const device = reactive<board.Device>({ host: '', port: 22, user: 'root', password: '' })
-const showPassword = ref(false)
+const device = reactive<board.Device>({ host: '', port: 22, user: 'root', password: '', keyPath: '' })
 const defaultPath = ref('/opt')
-const activeId = ref<'command' | 'file'>('command')
+const syncPath = ref('')
+const fileWidth = ref(320)
+const splitting = ref(false)
 const connected = ref(false)
 const busy = ref('')
 const configWarning = ref('')
@@ -28,6 +28,7 @@ onMounted(async () => {
     device.port = cfg.device.port || 22
     device.user = cfg.device.user
     device.password = cfg.device.password
+    device.keyPath = cfg.device.keyPath || ''
     defaultPath.value = cfg.defaultPath
     configWarning.value = cfg.warning
   } catch (e) {
@@ -64,6 +65,7 @@ function connect() {
       port: Number(device.port) || 22,
       user: device.user.trim(),
       password: device.password,
+      keyPath: device.keyPath,
     })
     connected.value = st.connected
     banner.value = { kind: 'ok', text: `已连接 ${st.addr}` }
@@ -91,9 +93,45 @@ async function syncStatus() {
     connected.value = false
   }
 }
+
+const keyName = computed(() => {
+  const p = device.keyPath
+  if (!p) return ''
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i >= 0 ? p.slice(i + 1) : p
+})
+
+function pickKey() {
+  return call('key', async () => {
+    const path = await PickKeyFile()
+    if (!path) return
+    device.keyPath = path
+  })
+}
+
+function onCwd(p: string) {
+  syncPath.value = p
+}
+
+function onSplitDown(e: MouseEvent) {
+  splitting.value = true
+  const startX = e.clientX
+  const startW = fileWidth.value
+  const onMove = (ev: MouseEvent) => {
+    fileWidth.value = Math.min(Math.max(startW + ev.clientX - startX, 200), window.innerWidth - 380)
+  }
+  const onUp = () => {
+    splitting.value = false
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
 </script>
 
 <template>
+  <div class="board-page">
   <section class="card conn-card">
     <div class="conn-row">
       <h2 class="card-title">主板连接</h2>
@@ -106,58 +144,40 @@ async function syncStatus() {
         :disabled="!!busy"
       />
       <input
-        id="board-port"
-        v-model.number="device.port"
-        class="conn-port"
-        aria-label="端口"
-        type="number"
-        min="1"
-        max="65535"
-        placeholder="端口"
-        :disabled="!!busy"
-      />
-      <input
         id="board-user"
         v-model.trim="device.user"
         class="conn-user"
-        aria-label="用户名"
+        aria-label="用户"
         placeholder="用户"
         :disabled="!!busy"
       />
-      <div class="pass-box">
-        <input
-          id="board-pass"
-          v-model="device.password"
-          aria-label="密码"
-          :type="showPassword ? 'text' : 'password'"
-          placeholder="密码"
-          :disabled="!!busy"
-        />
-        <!-- 空密码在密码框里和「没填」长得一模一样，得能看一眼确认。 -->
-        <button
-          class="peek"
-          type="button"
-          :title="showPassword ? '隐藏密码' : '显示密码'"
-          :aria-label="showPassword ? '隐藏密码' : '显示密码'"
-          @click="showPassword = !showPassword"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="14"
-            height="14"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" />
-            <circle cx="12" cy="12" r="2.6" />
-            <path v-if="showPassword" d="M4.5 19.5 19.5 4.5" />
-          </svg>
-        </button>
-      </div>
+      <input
+        id="board-pass"
+        v-model="device.password"
+        class="conn-pass"
+        aria-label="密码"
+        type="password"
+        placeholder="密码"
+        :disabled="!!busy"
+      />
+      <button
+        class="conn-btn conn-key"
+        :class="{ on: !!device.keyPath }"
+        :title="device.keyPath || '选择私钥'"
+        :disabled="!!busy"
+        @click="pickKey"
+      >
+        {{ keyName || '密钥' }}
+      </button>
+      <button
+        v-if="device.keyPath"
+        class="conn-btn"
+        title="清除密钥"
+        :disabled="!!busy"
+        @click="device.keyPath = ''"
+      >
+        ×
+      </button>
       <button
         class="primary conn-btn"
         :disabled="!!busy || !device.host.trim() || !device.user.trim()"
@@ -170,27 +190,74 @@ async function syncStatus() {
     </div>
   </section>
 
-  <nav class="tabs">
-    <button class="tab" :class="{ active: activeId === 'command' }" @click="activeId = 'command'">
-      指令
-    </button>
-    <button class="tab" :class="{ active: activeId === 'file' }" @click="activeId = 'file'">
-      文件
-    </button>
-  </nav>
-
-  <!-- 用 v-show 不用 v-if：切一下标签页就把执行日志和列好的目录清空，
-       而这两样正是要对着看的东西。两个面板都不在挂载时联网，留着不占什么。 -->
-  <CommandPanel v-show="activeId === 'command'" :connected="connected" @refresh-status="syncStatus" />
-  <FilePanel
-    v-show="activeId === 'file'"
-    :connected="connected"
-    :default-path="defaultPath"
-    @refresh-status="syncStatus"
-  />
+  <div class="workspace" :class="{ splitting }">
+    <div class="pane pane-file" :style="{ width: `${fileWidth}px` }">
+      <FilePanel
+        :connected="connected"
+        :default-path="defaultPath"
+        :sync-path="syncPath"
+        @refresh-status="syncStatus"
+      />
+    </div>
+    <div class="splitter" title="拖动调整宽度" @mousedown.prevent="onSplitDown" />
+    <div class="pane pane-term">
+      <CommandPanel :connected="connected" @refresh-status="syncStatus" @cwd="onCwd" />
+    </div>
+  </div>
+  </div>
 </template>
 
 <style scoped>
+.board-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: calc(100vh - 88px);
+  min-height: 0;
+}
+
+.workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workspace.splitting {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.pane {
+  min-height: 0;
+  height: 100%;
+}
+
+.pane-file {
+  flex: 0 0 auto;
+}
+
+.pane-term {
+  flex: 1 1 auto;
+  min-width: 280px;
+}
+
+.pane > :deep(*) {
+  height: 100%;
+}
+
+.splitter {
+  flex: 0 0 6px;
+  margin: 0 2px;
+  border-radius: 3px;
+  background: var(--border);
+  cursor: col-resize;
+}
+
+.splitter:hover,
+.workspace.splitting .splitter {
+  background: var(--accent);
+}
+
 .conn-card {
   margin-bottom: 8px;
   padding: 6px 8px;
@@ -203,7 +270,7 @@ async function syncStatus() {
   gap: 6px;
 }
 
-/* 标题占定宽不参与压缩：这一行挤的时候先压地址和密码框，标题被压成半个字最难看。 */
+/* 标题占定宽不参与压缩：这一行挤的时候先压地址框，标题被压成半个字最难看。 */
 .conn-row .card-title {
   flex: 0 0 auto;
   margin: 0;
@@ -217,54 +284,30 @@ async function syncStatus() {
 }
 
 .conn-host {
-  flex: 0 1 9.5rem;
-  width: 9.5rem;
-}
-
-.conn-port {
-  flex: 0 0 4.2rem;
-  width: 4.2rem;
-  appearance: textfield;
-}
-
-.conn-port::-webkit-inner-spin-button,
-.conn-port::-webkit-outer-spin-button {
-  appearance: none;
+  flex: 0 1 8.5rem;
+  width: 8.5rem;
 }
 
 .conn-user {
-  flex: 0 1 5.5rem;
-  width: 5.5rem;
+  flex: 0 1 5rem;
+  width: 5rem;
 }
 
-.pass-box {
-  position: relative;
-  flex: 0 1 7.5rem;
-  width: 7.5rem;
+.conn-pass {
+  flex: 0 1 6rem;
+  width: 6rem;
 }
 
-.pass-box input {
-  padding-right: 26px;
+.conn-key {
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.peek {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  bottom: 1px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 0 5px 5px 0;
-  background: none;
-  color: var(--text-dim);
-}
-
-.peek:hover {
-  color: var(--text);
+.conn-key.on {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .conn-btn {
@@ -300,32 +343,5 @@ async function syncStatus() {
 .status.info {
   background: var(--accent-soft);
   color: var(--accent);
-}
-
-.tabs {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.tab {
-  margin-bottom: -1px;
-  padding: 8px 14px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: none;
-  color: var(--text-dim);
-}
-
-.tab:hover:not(.active) {
-  color: var(--text);
-}
-
-.tab.active {
-  border-bottom-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
 }
 </style>

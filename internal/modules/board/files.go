@@ -1,6 +1,7 @@
 package board
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/pkg/sftp"
 )
+
+// 文本编辑只读这一档大小：再大就该用本机编辑器，不该塞进对话框。
+const maxEditBytes = 48 * 1024
 
 // Entry 是远端目录里的一个条目。
 type Entry struct {
@@ -48,6 +52,40 @@ func listDir(c *sftp.Client, dir string) ([]Entry, error) {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, nil
+}
+
+// readRemoteText 读一份够小的文本文件，给界面上的编辑框用。
+// 二进制或超大的直接拒绝，避免把整颗固件塞进文本框。
+func readRemoteText(c *sftp.Client, remotePath string) (string, error) {
+	remotePath = strings.TrimSpace(remotePath)
+	if remotePath == "" {
+		return "", errors.New("没有选择要编辑的文件")
+	}
+	st, err := c.Stat(remotePath)
+	if err != nil {
+		return "", fmt.Errorf("读取 %s 的信息失败: %w", remotePath, err)
+	}
+	if st.IsDir() {
+		return "", fmt.Errorf("%s 是目录", remotePath)
+	}
+	if st.Size() > maxEditBytes {
+		return "", fmt.Errorf("%s 有 %d 字节，超过 %d，不能当文本编辑", remotePath, st.Size(), maxEditBytes)
+	}
+
+	f, err := c.Open(remotePath)
+	if err != nil {
+		return "", fmt.Errorf("打开 %s 失败: %w", remotePath, err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxEditBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("读取 %s 失败: %w", remotePath, err)
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
+		return "", fmt.Errorf("%s 是二进制文件，不能当文本编辑", remotePath)
+	}
+	return string(data), nil
 }
 
 // upload 把本地文件传到远端。

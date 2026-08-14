@@ -1,11 +1,18 @@
 package board
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // silentServer 起一个只接受 TCP 连接、一个字节都不发的监听，模拟「端口开着但不是
@@ -87,6 +94,7 @@ func TestDialRejectsMissingFields(t *testing.T) {
 	}{
 		{"没有地址", Device{User: "root"}, "地址"},
 		{"没有用户名", Device{Host: "10.0.0.2"}, "用户名"},
+		{"密钥不存在", Device{Host: "10.0.0.2", User: "root", KeyPath: `Z:\no-such-key`}, "密钥"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -98,5 +106,23 @@ func TestDialRejectsMissingFields(t *testing.T) {
 				t.Fatalf("err=%q，期望提到 %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestLoadSignerReadsEd25519(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadSigner(path, ""); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -23,7 +23,7 @@ func TestPackAssemblesFolderAndKeepsExistingConfig(t *testing.T) {
 	if err := os.MkdirAll(remoteDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"config.json", "io.json", "register.json"} {
+	for _, name := range []string{"config.json", "io.json", "register.json", "io-flow.json"} {
 		if err := os.WriteFile(filepath.Join(remoteDir, name), []byte(`{"factory":"`+name+`"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -65,5 +65,71 @@ func TestPackAssemblesFolderAndKeepsExistingConfig(t *testing.T) {
 	}
 	if st, err := os.Stat(filepath.Join(dest, "webview2")); err != nil || !st.IsDir() {
 		t.Fatal("应当建好 webview2 目录")
+	}
+}
+
+func TestWriteBackCopiesChangedConfig(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "wails.json"), []byte(`{"outputfilename":"C2toolsV9.9.9"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	remoteDir := filepath.Join(root, "internal", "modules", "remote", "config")
+	if err := os.MkdirAll(remoteDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(remoteDir, "io.json"), []byte(`{"factory":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(remoteDir, "config.json"), []byte(`{"factory":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(root, "build", "bin", "C2toolsV9.9.9")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "remote-io.json"), []byte(`{"field":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "remote-config.json"), []byte(`{"factory":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeBack(root); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(remoteDir, "io.json")); string(got) != `{"field":true}` {
+		t.Fatalf("改过的 IO 应当写回源码：%s", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(remoteDir, "config.json")); string(got) != `{"factory":true}` {
+		t.Fatalf("没改的不该动：%s", got)
+	}
+}
+
+func TestWriteBackRejectsBrokenJSON(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "wails.json"), []byte(`{"outputfilename":"C2toolsV9.9.9"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	remoteDir := filepath.Join(root, "internal", "modules", "remote", "config")
+	if err := os.MkdirAll(remoteDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const factory = `{"factory":true}`
+	if err := os.WriteFile(filepath.Join(remoteDir, "io.json"), []byte(factory), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(root, "build", "bin", "C2toolsV9.9.9")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "remote-io.json"), []byte(`{"半份`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeBack(root); err == nil {
+		t.Fatal("坏 JSON 应当被拒")
+	}
+	if got, _ := os.ReadFile(filepath.Join(remoteDir, "io.json")); string(got) != factory {
+		t.Fatalf("源码不该被坏文件覆盖：%s", got)
 	}
 }

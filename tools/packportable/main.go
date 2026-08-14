@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,10 +20,32 @@ import (
 
 func main() {
 	root := flag.String("root", ".", "仓库根目录")
+	writeback := flag.Bool("writeback", false, "把绿色版目录里的配置写回源码出厂文件")
 	flag.Parse()
-	if err := pack(*root); err != nil {
+	var err error
+	if *writeback {
+		err = writeBack(*root)
+	} else {
+		err = pack(*root)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "packportable:", err)
 		os.Exit(1)
+	}
+}
+
+type seed struct {
+	src string // 仓库里的出厂文件
+	dst string // 绿色版目录里的文件名
+}
+
+func factorySeeds(root string) []seed {
+	return []seed{
+		{filepath.Join(root, "internal", "modules", "remote", "config", "config.json"), "remote-config.json"},
+		{filepath.Join(root, "internal", "modules", "remote", "config", "io.json"), "remote-io.json"},
+		{filepath.Join(root, "internal", "modules", "remote", "config", "register.json"), "remote-register.json"},
+		{filepath.Join(root, "internal", "modules", "remote", "config", "io-flow.json"), "remote-io-flow.json"},
+		{filepath.Join(root, "internal", "modules", "board", "config", "commands.json"), "board-commands.json"},
 	}
 }
 
@@ -52,13 +75,7 @@ func pack(root string) error {
 		return fmt.Errorf("放入 exe：%w", err)
 	}
 
-	seeds := []struct{ src, dst string }{
-		{filepath.Join(root, "internal", "modules", "remote", "config", "config.json"), "remote-config.json"},
-		{filepath.Join(root, "internal", "modules", "remote", "config", "io.json"), "remote-io.json"},
-		{filepath.Join(root, "internal", "modules", "remote", "config", "register.json"), "remote-register.json"},
-		{filepath.Join(root, "internal", "modules", "board", "config", "commands.json"), "board-commands.json"},
-	}
-	for _, s := range seeds {
+	for _, s := range factorySeeds(root) {
 		dst := filepath.Join(dest, s.dst)
 		if fileExists(dst) {
 			fmt.Printf("保留已有 %s\n", s.dst)
@@ -75,6 +92,61 @@ func pack(root string) error {
 	}
 
 	fmt.Printf("绿色版：%s\n", dest)
+	return nil
+}
+
+// writeBack 把绿色版目录里改过的配置拷回源码出厂文件。
+// 现场调好点位或指令之后，下次构建要带着走，就走这一步。
+// 绿色版里没有的、和源码一样的，都跳过；坏 JSON 不写，免得把出厂文件毁了。
+// netcfg-state.json 不是出厂配置，不在这份清单里。
+func writeBack(root string) error {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	name, err := outputName(root)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(root, "build", "bin", name)
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return fmt.Errorf("找不到绿色版目录 %s，先构建", dir)
+	}
+
+	changed := 0
+	for _, s := range factorySeeds(root) {
+		from := filepath.Join(dir, s.dst)
+		if !fileExists(from) {
+			fmt.Printf("跳过 %s（绿色版里没有）\n", s.dst)
+			continue
+		}
+		raw, err := os.ReadFile(from)
+		if err != nil {
+			return fmt.Errorf("读 %s：%w", from, err)
+		}
+		if !json.Valid(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))) {
+			return fmt.Errorf("%s 不是合法 JSON，源码没有改动", from)
+		}
+		if old, err := os.ReadFile(s.src); err == nil && bytes.Equal(old, raw) {
+			fmt.Printf("未改 %s\n", s.dst)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(s.src), 0o755); err != nil {
+			return err
+		}
+		if err := copyFile(from, s.src); err != nil {
+			return fmt.Errorf("回写 %s：%w", s.dst, err)
+		}
+		rel, err := filepath.Rel(root, s.src)
+		if err != nil {
+			rel = s.src
+		}
+		fmt.Printf("回写 %s → %s\n", s.dst, rel)
+		changed++
+	}
+	if changed == 0 {
+		fmt.Println("没有需要回写的改动")
+	}
 	return nil
 }
 

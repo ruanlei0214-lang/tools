@@ -43,13 +43,14 @@ type Settings struct {
 	Warning string `json:"warning"`
 }
 
-// Device 是主板的 SSH 连接参数。四项都会显示在界面上并且可改——
-// 现场换设备、换端口是常事，藏进配置文件只会让人去改代码。
+// Device 是主板的 SSH 连接参数。
 type Device struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	User     string `json:"user"`
 	Password string `json:"password"`
+	// KeyPath 是本机私钥路径。选了就先用密钥登录，密码仍可作为密钥口令或备用认证。
+	KeyPath string `json:"keyPath"`
 }
 
 // builtinSettings 是 config.json 不可用时的兜底。配置坏了只该影响默认值，

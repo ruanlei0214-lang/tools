@@ -22,9 +22,13 @@ export function ListCommands():Promise<board.CommandList>;
 
 export function ListDir(arg1:string):Promise<Array<board.Entry>>;
 
+export function PickKeyFile():Promise<string>;
+
 export function PickLocalFile():Promise<string>;
 
 export function PickSaveTarget(arg1:string):Promise<string>;
+
+export function ReadRemoteText(arg1:string):Promise<string>;
 
 export function ReadTerminal():Promise<string>;
 

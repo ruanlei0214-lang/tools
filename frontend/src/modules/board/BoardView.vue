@@ -113,8 +113,11 @@ function onSplitDown(e: MouseEvent) {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  height: calc(100vh - 88px);
+  /* 跟着内容区走，不再用 100vh 减一个估出来的顶栏高度——
+     顶栏加了连接区之后那 88px 已经对不上，底部会被裁掉一截。 */
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .workspace {

@@ -416,58 +416,61 @@ function fileName(p: string): string {
       </div>
     </div>
 
-    <!-- 指令区压在终端下面：终端是这页的主角，按钮是顺手工具，不该一进门就占住顶部。 -->
-    <div class="command-toolbar">
-      <button class="tool-btn add-command" :disabled="!!busy" title="新增指令按钮" @click="startAdd">＋ 新增</button>
-      <span class="tool-sep" />
-      <button class="tool-btn" :disabled="!!busy" title="把清单存成 JSON" @click="exportList">导出</button>
-      <button class="tool-btn" :disabled="!!busy" title="从 JSON 整份替换清单" @click="importList">导入</button>
-      <div
-        v-if="banner || listWarning"
-        class="status"
-        :class="banner?.kind || 'err'"
-        :title="banner?.title || banner?.text || listWarning"
-      >
-        {{ banner?.text || listWarning }}
+    <!-- 指令区单独成一块、不许被压扁。终端输出再长也只在自己那格里滚，
+         不能把下面的按钮挤出可视区域——现场就是这么坏的。 -->
+    <div class="command-footer">
+      <div class="command-toolbar">
+        <button class="tool-btn add-command" :disabled="!!busy" title="新增指令按钮" @click="startAdd">＋ 新增</button>
+        <span class="tool-sep" />
+        <button class="tool-btn" :disabled="!!busy" title="把清单存成 JSON" @click="exportList">导出</button>
+        <button class="tool-btn" :disabled="!!busy" title="从 JSON 整份替换清单" @click="importList">导入</button>
+        <div
+          v-if="banner || listWarning"
+          class="status"
+          :class="banner?.kind || 'err'"
+          :title="banner?.title || banner?.text || listWarning"
+        >
+          {{ banner?.text || listWarning }}
+        </div>
       </div>
-    </div>
 
-    <div v-if="editing" class="editor-row">
-      <input
-        v-model="draft.name"
-        class="editor-name"
-        aria-label="名称"
-        placeholder="名称"
-        autofocus
-        :disabled="!!busy"
-        @keyup.enter="canEdit && save()"
-        @keyup.esc="editing = false"
-      />
-      <input
-        v-model="draft.command"
-        class="editor-command"
-        aria-label="命令"
-        placeholder="命令"
-        :disabled="!!busy"
-        @keyup.enter="canEdit && save()"
-        @keyup.esc="editing = false"
-      />
-      <button class="primary editor-action" :disabled="!!busy || !canEdit" @click="save">保存</button>
-      <button class="editor-action" :disabled="!!busy" @click="editing = false">取消</button>
-    </div>
+      <div v-if="editing" class="editor-row">
+        <input
+          v-model="draft.name"
+          class="editor-name"
+          aria-label="名称"
+          placeholder="名称"
+          autofocus
+          :disabled="!!busy"
+          @keyup.enter="canEdit && save()"
+          @keyup.esc="editing = false"
+        />
+        <input
+          v-model="draft.command"
+          class="editor-command"
+          aria-label="命令"
+          placeholder="命令"
+          :disabled="!!busy"
+          @keyup.enter="canEdit && save()"
+          @keyup.esc="editing = false"
+        />
+        <button class="primary editor-action" :disabled="!!busy || !canEdit" @click="save">保存</button>
+        <button class="editor-action" :disabled="!!busy" @click="editing = false">取消</button>
+      </div>
 
-    <div v-if="commands.length" class="cmd-grid">
-      <button
-        v-for="c in commands"
-        :key="c.id"
-        class="cmd-run"
-        :disabled="!connected || !!busy"
-        :title="c.command"
-        @click="run(c)"
-        @contextmenu.prevent="openMenu($event, c)"
-      >
-        {{ busy === `run-${c.id}` ? '…' : c.name }}
-      </button>
+      <div v-if="commands.length" class="cmd-grid">
+        <button
+          v-for="c in commands"
+          :key="c.id"
+          class="cmd-run"
+          :disabled="!connected || !!busy"
+          :title="c.command"
+          @click="run(c)"
+          @contextmenu.prevent="openMenu($event, c)"
+        >
+          {{ busy === `run-${c.id}` ? '…' : c.name }}
+        </button>
+      </div>
     </div>
     <ContextMenu
       v-if="menu"
@@ -488,12 +491,18 @@ function fileName(p: string): string {
   min-height: 0;
   margin: 0;
   padding: 8px;
+  overflow: hidden;
+}
+
+/* 工具行 + 按钮整块锁死高度：flex-shrink 为 0，终端再长也挤不动它。 */
+.command-footer {
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 /* 工具行和终端之间划一条细线：它是终端的附属区，不是和终端平起平坐的一块。 */
 .command-toolbar {
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
   margin-top: 6px;
@@ -570,7 +579,6 @@ function fileName(p: string): string {
 
 .editor-row {
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
   margin-top: 6px;
@@ -601,7 +609,6 @@ function fileName(p: string): string {
 
 .cmd-grid {
   display: flex;
-  flex: 0 1 auto;
   flex-wrap: wrap;
   gap: 4px;
   max-height: 4.6rem;

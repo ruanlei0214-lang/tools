@@ -172,7 +172,7 @@ function sanitizeTerminal(s: string) {
     .replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
     .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\u001B[@-Z\\-_]/g, '')
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u0080-\u009F\uFFFD]/g, '')
+    .replace(/[\u0000-\u0007\u000B\u000C\u000E-\u001A\u001C-\u001F\u0080-\u009F\uFFFD]/g, '')
 }
 
 function holdIncompleteEscape(s: string) {

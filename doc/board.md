@@ -1,6 +1,6 @@
 # 终端（board）
 
-当前版本 **V1.1.9**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
+当前版本 **V1.1.10**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
 
 ## 做什么
 

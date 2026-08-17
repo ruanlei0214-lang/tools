@@ -268,6 +268,30 @@ func TestReadRemoteTextAcceptsSmallText(t *testing.T) {
 	}
 }
 
+func TestReadRemoteBytesAcceptsBinary(t *testing.T) {
+	c := testSFTP(t)
+	dir := t.TempDir()
+	want := []byte{0x89, 'P', 'N', 'G', 0, 1, 2, 3}
+	p := filepath.Join(dir, "a.png")
+	if err := os.WriteFile(p, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readRemoteBytes(c, remotePath(dir, "a.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("读到 %v", got)
+	}
+}
+
+func TestReadRemoteBytesRejectsEmptyPath(t *testing.T) {
+	c := testSFTP(t)
+	if _, err := readRemoteBytes(c, "   "); err == nil {
+		t.Fatal("空路径应当报错")
+	}
+}
+
 func TestReadRemoteTextRejectsBinary(t *testing.T) {
 	c := testSFTP(t)
 	dir := t.TempDir()

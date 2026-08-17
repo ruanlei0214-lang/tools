@@ -9,5 +9,5 @@ remote-io.json
 remote-register.json
 remote-io-flow.json
 board-commands.json
-netcfg-state.json
+toolbox-config.json
 webview2/

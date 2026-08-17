@@ -6,8 +6,11 @@ package board
 
 import (
 	"context"
+	"embedtools/internal/module"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,8 +70,25 @@ type Service struct {
 	lastErr  string
 }
 
-// Config 返回页面默认值，来自编译进产物的 config.json。
-func (s *Service) Config() Settings { return s.settings }
+// Config 返回页面默认值。地址和 SSH 凭据优先用共享配置 toolbox-config.json，
+// 没有或坏掉才退回编译进产物的 config.json——三个模块连的是同一台控制器。
+func (s *Service) Config() Settings {
+	shared := module.LoadShared()
+	out := s.settings
+	if shared.Host != "" {
+		out.Device.Host = shared.Host
+	}
+	if shared.User != "" {
+		out.Device.User = shared.User
+	}
+	if shared.Password != "" {
+		out.Device.Password = shared.Password
+	}
+	if shared.KeyPath != "" {
+		out.Device.KeyPath = shared.KeyPath
+	}
+	return out
+}
 
 // Status 报告当前连接状态。
 func (s *Service) Status() Status {
@@ -114,8 +134,30 @@ func (s *Service) Connect(d Device) (Status, error) {
 	s.conn, s.sftp, s.addr, s.lastErr = conn, sc, addr, ""
 	s.mu.Unlock()
 
+	// 连上了就记下来：netcfg 和 remote 下次打开用的就是这个地址。
+	// 只记地址，不记端口——WS 端口和 SSH 端口是两回事，共享配置里不存端口。
+	// 写失败不影响连接本身，只是下次打开退回默认地址，所以只记日志。
+	if err := module.SaveShared(module.Shared{Host: d.Host, User: d.User, Password: d.Password, KeyPath: d.KeyPath}); err != nil {
+		log.Printf("board: 写入共享配置失败：%v", err)
+	}
+
 	go s.watch(conn)
 	return Status{Connected: true, Addr: addr}, nil
+}
+
+// SaveDevice 保存连接参数到共享配置。地址、用户名、密码、密钥路径都写进
+// toolbox-config.json，netcfg 和 remote 下次打开用的就是这份。
+// 返回更新后的页面默认值（共享配置优先）。
+func (s *Service) SaveDevice(d Device) (Settings, error) {
+	if err := module.SaveShared(module.Shared{
+		Host:     d.Host,
+		User:     d.User,
+		Password: d.Password,
+		KeyPath:  d.KeyPath,
+	}); err != nil {
+		return Settings{}, err
+	}
+	return s.Config(), nil
 }
 
 // Disconnect 主动断开。切走页面或换设备时调用，别把连接挂在那儿。
@@ -344,6 +386,23 @@ func (s *Service) ReadRemoteText(remotePath string) (string, error) {
 		return "", err
 	}
 	return readRemoteText(c, remotePath)
+}
+
+// ReadRemoteBytes 读一份够小的文件，给终端下方的图片预览用。
+//
+// 返回 base64 字符串而不是 []byte：Wails 的绑定生成器把 []byte 标成 number[]，
+// 而运行时 JSON 实际给的是 base64 字符串，类型和值对不上。在这里显式编码，
+// 前端拿到的类型和值就一致了。
+func (s *Service) ReadRemoteBytes(remotePath string) (string, error) {
+	c, err := s.sftpClient()
+	if err != nil {
+		return "", err
+	}
+	data, err := readRemoteBytes(c, remotePath)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 // PickKeyFile 弹系统对话框选一把本机私钥，取消时返回空字符串。

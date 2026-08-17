@@ -169,9 +169,9 @@ go run ./tools/packportable
 它会：
 
 - 把 `build\bin\<名字>.exe` 挪进 `build\bin\<名字>\`
-- 拷 remote 的出厂配置和 board 的出厂指令清单（`remote-config.json` /
-  `remote-io.json` / `remote-register.json` / `remote-io-flow.json` / `board-commands.json`）。
-  目录里已经有的不覆盖，重建不会冲掉现场改过的。
+- 拷 remote 的出厂配置、board 的出厂指令清单和共享配置（`remote-config.json` /
+  `remote-io.json` / `remote-register.json` / `remote-io-flow.json` / `board-commands.json` /
+  `toolbox-config.json`）。目录里已经有的不覆盖，重建不会冲掉现场改过的。
 - 建好 `webview2\`。程序把 WebView2 用户数据指到这里，第二次打开不用再往 `%APPDATA%` 冷启动。
 
 `build.ps1`、BuildUI 的「构建」、`pickbuild` 在 `wails build` 之后都会跑它。单独 `wails build`
@@ -183,9 +183,10 @@ go run ./tools/packportable
 go run ./tools/packportable -writeback
 ```
 
-或在 BuildUI 点「回写配置」。只写那四份出厂文件，坏 JSON 不写。`netcfg-state.json` 不回写。
+或在 BuildUI 点「回写配置」。只写那四份出厂文件，坏 JSON 不写。`toolbox-config.json` 回写时只取
+`host` 写回 board 的出厂默认，不整份覆盖——remote 的端口、路径不该被共享配置冲掉。
 
-整夹拷走就能用。netcfg 记住的地址是用出来才生成的，出厂没有可拷的。
+整夹拷走就能用。共享配置里的地址是连通过才写进去的，出厂没有可拷的。
 
 ---
 

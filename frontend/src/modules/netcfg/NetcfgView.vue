@@ -8,9 +8,10 @@ import {
   TestConnection,
 } from '../../../wailsjs/go/netcfg/Service'
 import type { netcfg } from '../../../wailsjs/go/models'
+import { conn, loadShared } from '../../shell/connection'
 
-// 四个字段都由 onMounted 从 config.json 填入，这里只占位。
-// 端口、用户名、密码不在界面上暴露，要改只能改配置后重新构建。
+// 四个字段都由后端 Defaults() 填入：地址和凭据来自共享配置 toolbox-config.json，
+// 与顶栏凭据弹层里的是同一份。界面上不暴露编辑，要改去顶栏「凭据」。
 const device = reactive<netcfg.Device>({ host: '', port: 0, user: '', password: '' })
 const form = reactive({ ip: '', mask: '', gateway: '' })
 const defaults = reactive({ mask: '', restoreFile: '', persistIface: '' })
@@ -81,6 +82,13 @@ async function call(op: string, fn: () => Promise<void>) {
   }
 }
 
+// refreshDevice 重新取一次共享配置里的地址和凭据。页面是 keep-alive 的，
+// 顶栏凭据弹层改过的值不会自己长进来，每次动设备前先对齐。
+async function refreshDevice() {
+  const s = await Defaults()
+  Object.assign(device, s.device)
+}
+
 // 连得上就顺手把网口读回来：点「测试连接」的人下一步一定是要看网口，中间再让他点一次
 // 没有意义。读网口失败时错误会盖掉「连接成功」，这是对的——连上了但读不到网口，
 // 能做的事和没连上一样。
@@ -93,6 +101,7 @@ function test() {
     selected.value = ''
     confirming.value = false
 
+    await refreshDevice()
     await TestConnection(device)
     ports.value = await ListPorts(device)
 
@@ -128,6 +137,8 @@ function apply() {
     ports.value = []
     selected.value = ''
     device.host = target
+    // 后端已把新地址写进共享配置，顶栏的地址跟着换过去。
+    await loadShared()
     banner.value = {
       kind: 'ok',
       text: persisted
@@ -139,6 +150,7 @@ function apply() {
 
 function restore() {
   return call('restore', async () => {
+    await refreshDevice()
     await RestoreNetwork(device)
     banner.value = {
       kind: 'ok',
@@ -155,18 +167,11 @@ function restore() {
       <p class="page-sub">按机柜面板网口改地址：先连设备，再点可改的网口，最后下发。</p>
     </header>
 
-    <!-- ① 连接：标题、地址、两个主操作按钮、状态同一行。「一键恢复」是现场重点工具，
-         用实心危险按钮突出，不能缩成文字链。 -->
+    <!-- ① 连接：地址来自顶栏的共享配置，只读；这一行只剩本模块的两个操作。 -->
     <section class="panel connect-panel">
       <div class="connect-row">
         <div class="step-label">1 · 连接设备</div>
-        <input
-          id="host"
-          v-model.trim="device.host"
-          class="conn-host"
-          aria-label="设备地址"
-          placeholder="设备地址"
-        />
+        <span class="conn-host-readonly" :title="'共享配置：' + (conn.host || '未配置')">{{ conn.host || '未配置' }}</span>
         <button class="primary connect-btn" :disabled="busy !== ''" @click="test">
           {{ busy === 'test' ? '连接中…' : '测试连接' }}
         </button>
@@ -346,11 +351,20 @@ function restore() {
   white-space: nowrap;
 }
 
-.conn-host {
+.conn-host-readonly {
   flex: 0 1 11rem;
   width: 11rem;
   padding: 4px 7px;
   font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
 }
 
 .connect-btn {

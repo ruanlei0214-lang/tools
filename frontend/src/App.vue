@@ -1,17 +1,32 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue'
 import { WindowSetAlwaysOnTop } from '../wailsjs/runtime/runtime'
+import { PickKeyFile } from '../wailsjs/go/board/Service'
 import { modules } from './shell/registry'
 import { APP_NAME, APP_VERSION } from './shell/version'
+import { conn, connectAll, disconnectAll, loadShared, saveCreds } from './shell/connection'
 
 const activeId = ref(modules[0]?.id ?? '')
 const active = computed(() => modules.find((m) => m.id === activeId.value))
 const showAbout = ref(false)
+const showCreds = ref(false)
 const alwaysOnTopKey = 'embedtools.alwaysOnTop'
 const alwaysOnTop = ref(localStorage.getItem(alwaysOnTopKey) === '1')
+const connMsg = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+const credsError = ref('')
 
-onMounted(() => {
+// 一条连接还挂着就算「已连接」：按钮文案跟着变成断开，点一下两条一起收。
+const anyConnected = computed(() => conn.sshConnected || conn.wsConnected)
+
+onMounted(async () => {
   applyAlwaysOnTop(alwaysOnTop.value)
+  // 不自动连接。开机时设备还没起来，一打开就连会把整个程序卡住；
+  // 这里的按钮连着重启进程、删文件这类做过就回不去的事，得人自己按。
+  try {
+    await loadShared()
+  } catch (e) {
+    connMsg.value = { kind: 'err', text: `读取共享配置失败：${String(e)}` }
+  }
 })
 
 function toggleAlwaysOnTop() {
@@ -23,6 +38,43 @@ function toggleAlwaysOnTop() {
 
 function applyAlwaysOnTop(on: boolean) {
   WindowSetAlwaysOnTop(on)
+}
+
+function toggleConnect() {
+  connMsg.value = null
+  if (anyConnected.value) {
+    // 断开是正常操作，状态灯自己会变灰，不用再说一句。
+    disconnectAll()
+    return
+  }
+  connectAll().then((r) => {
+    // 成功不提示，灯亮了就够了；只有失败才占这一格。
+    if (r.kind === 'err') connMsg.value = r
+  })
+}
+
+async function pickKey() {
+  const path = await PickKeyFile()
+  if (path) conn.keyPath = path
+}
+
+const keyName = computed(() => {
+  const p = conn.keyPath
+  if (!p) return ''
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i >= 0 ? p.slice(i + 1) : p
+})
+
+function saveCredForm() {
+  credsError.value = ''
+  saveCreds()
+    .then(() => {
+      showCreds.value = false
+      connMsg.value = { kind: 'ok', text: '连接参数已保存，全系列工具共用' }
+    })
+    .catch((e) => {
+      credsError.value = String(e)
+    })
 }
 </script>
 
@@ -41,6 +93,48 @@ function applyAlwaysOnTop(on: boolean) {
           {{ m.name }}
         </button>
       </nav>
+
+      <!-- 全系列工具共用一台控制器：地址只在这里显示，连接也只在这里按。
+           SSH 和 WS 各一个状态点，灰的没连、绿的已连、红的刚断过。
+           被 profile 裁掉的协议不显示（比如 netcfg-only 产物没有这两个点）。 -->
+      <div v-if="conn.hasSsh || conn.hasWs" class="conn-cluster">
+        <span
+          v-if="conn.hasSsh"
+          class="proto"
+          :class="{ on: conn.sshConnected, err: !conn.sshConnected && !!conn.sshError }"
+          :title="conn.sshConnected ? `SSH 已连接 ${conn.sshAddr}` : conn.sshError || 'SSH 未连接'"
+        >
+          <span class="dot" />SSH
+        </span>
+        <span
+          v-if="conn.hasWs"
+          class="proto"
+          :class="{ on: conn.wsConnected, err: !conn.wsConnected && !!conn.wsError }"
+          :title="conn.wsConnected ? `WS 已连接 ${conn.wsAddr}` : conn.wsError || 'WS 未连接'"
+        >
+          <span class="dot" />WS
+        </span>
+        <span class="conn-host" :title="conn.host ? `共享配置：${conn.host}` : '点「凭据」填设备地址'">
+          {{ conn.host || '未配置' }}
+        </span>
+        <button
+          class="primary conn-toggle"
+          :disabled="!!conn.busy || (!anyConnected && (!conn.host.trim() || !conn.user.trim()))"
+          @click="toggleConnect"
+        >
+          {{ conn.busy === 'connect' ? '连接中…' : conn.busy === 'disconnect' ? '断开中…' : anyConnected ? '断开' : '连接' }}
+        </button>
+        <button
+          v-if="conn.hasSsh"
+          class="conn-creds"
+          title="地址、用户名、密码、密钥"
+          @click="showCreds = true; credsError = ''"
+        >
+          凭据
+        </button>
+        <span v-if="connMsg" class="conn-msg" :class="connMsg.kind" :title="connMsg.text">{{ connMsg.text }}</span>
+      </div>
+
       <div class="top-actions">
         <button class="about-entry" title="关于工具箱" @click="showAbout = true">关于</button>
         <button
@@ -76,6 +170,37 @@ function applyAlwaysOnTop(on: boolean) {
       </keep-alive>
       <p v-if="!active" class="empty">还没有任何模块，在 src/modules/ 下新建一个目录即可。</p>
     </main>
+  </div>
+
+  <!-- 凭据弹层：全系列工具唯一改地址和 SSH 凭据的地方，保存进共享配置
+       toolbox-config.json，三个模块下次打开用的就是这份。 -->
+  <div v-if="showCreds" class="modal-mask" @click.self="showCreds = false">
+    <div class="modal">
+      <h2 class="modal-title">连接凭据</h2>
+      <p class="creds-sub">全系列工具共用这一份，SSH 和 WebSocket 连的都是它。</p>
+      <div class="creds-grid">
+        <label for="creds-host">设备地址</label>
+        <input id="creds-host" v-model.trim="conn.host" placeholder="192.168.1.100" :disabled="!!conn.busy" />
+        <label for="creds-user">用户名</label>
+        <input id="creds-user" v-model.trim="conn.user" placeholder="root" :disabled="!!conn.busy" />
+        <label for="creds-pass">密码</label>
+        <input id="creds-pass" v-model="conn.password" type="password" placeholder="密码" :disabled="!!conn.busy" />
+        <label>私钥</label>
+        <div class="creds-key">
+          <button :title="conn.keyPath || '选择私钥'" :disabled="!!conn.busy" @click="pickKey">
+            {{ keyName || '选择私钥' }}
+          </button>
+          <button v-if="conn.keyPath" title="清除密钥" :disabled="!!conn.busy" @click="conn.keyPath = ''">×</button>
+        </div>
+      </div>
+      <p v-if="credsError" class="creds-err" :title="credsError">{{ credsError }}</p>
+      <div class="modal-actions">
+        <button :disabled="!!conn.busy" @click="showCreds = false">取消</button>
+        <button class="primary" :disabled="!!conn.busy || !conn.host.trim() || !conn.user.trim()" @click="saveCredForm">
+          {{ conn.busy === 'save' ? '保存中…' : '保存' }}
+        </button>
+      </div>
+    </div>
   </div>
 
   <div v-if="showAbout" class="modal-mask" @click.self="showAbout = false">
@@ -148,6 +273,97 @@ function applyAlwaysOnTop(on: boolean) {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
+}
+
+/* 连接区在导航和右侧按钮之间，吃掉中间剩下的宽度。
+   消息长了截断，完整内容挂 title——顶栏高度不能跟着消息变。 */
+.conn-cluster {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.proto {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.proto .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c8ccd3;
+}
+
+.proto.on {
+  color: var(--ok);
+}
+
+.proto.on .dot {
+  background: var(--ok);
+}
+
+.proto.err .dot {
+  background: var(--err);
+}
+
+.conn-host {
+  flex: 0 1 9rem;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.conn-toggle {
+  flex: 0 0 auto;
+  padding: 4px 14px;
+  font-size: 12px;
+}
+
+.conn-creds {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.conn-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conn-msg.ok {
+  color: var(--ok);
+}
+
+.conn-msg.err {
+  color: var(--err);
+}
+
+.conn-msg.info {
+  color: var(--accent);
 }
 
 .top-actions {
@@ -224,6 +440,50 @@ function applyAlwaysOnTop(on: boolean) {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+}
+
+.creds-sub {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 标签窄列在左、输入框在右：和「关于」那份 about-list 一个排法。 */
+.creds-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px 14px;
+  font-size: 13px;
+}
+
+.creds-grid label {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.creds-grid input {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.creds-key {
+  display: flex;
+  gap: 6px;
+}
+
+.creds-key button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.creds-err {
+  margin: 10px 0 0;
+  overflow: hidden;
+  color: var(--err);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .about-group {

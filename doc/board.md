@@ -1,6 +1,6 @@
 # 终端（board）
 
-当前版本 **V1.1.10**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
+当前版本 **V1.1.17**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
 
 ## 做什么
 
@@ -15,18 +15,19 @@
 
 ## 界面操作
 
-1. 顶部连接区一行放标题「主板连接」、IP、用户、密码、密钥、连接/断开。
-   端口仍用配置默认值（22）。选了密钥就先走公钥登录，密码可兼作密钥口令，没有密钥时仍用密码
-   （空密码也可以）。页面不会自动连接。
-2. 连接区下面左右分栏：**左边文件，右边终端**。指令按钮排在终端上方，小按钮，左键执行、右键编辑或删除。点「＋」展开名称和命令，保存即可。导入导出仍在工具行。
+1. **连接区在顶栏，不在本页**。顶栏显示共享地址和 SSH / WS 两个状态点，一个「连接」
+   按钮同时建立两条连接；地址、用户名、密码、私钥在顶栏「凭据」弹层里改，
+   全系列工具共用这一份。端口仍用配置默认值（22）。选了密钥就先走公钥登录，
+   密码可兼作密钥口令，没有密钥时仍用密码（空密码也可以）。程序不会自动连接。
+2. 本页左右分栏：**左边文件，右边终端**。指令按钮排在终端下方，小按钮，左键执行、右键编辑或删除。点「＋」展开名称和命令，保存即可。导入导出仍在工具行。
 3. 连接后自动打开 SSH 终端。点指令会把命令送进去。点进终端可直接打字；`Ctrl+C` 无选中时中断当前命令。
-4. 文件区地址栏可手改，回车或「刷新」打开。上一级、上传、粘贴在同一行。列表下方留白，右键可粘贴、新建文件夹。双击目录进去，双击文件编辑文本（二进制或超过 48KB 会拒）。复制移动重命名删除走终端里的 `cp` / `mv` / `rm` / `mkdir` / `cat`，上传下载仍走 SFTP。终端里 `cd` 之后，左边文件路径跟着切过去。左右中间的竖条可拖动。
-5. 离开模块时连接会自动断开。
+4. 文件区地址栏可手改，回车或「刷新」打开。上一级、上传、粘贴在同一行。列表下方留白，右键可粘贴、新建文件夹。双击目录进去；双击图片（png/jpg/gif/webp/bmp/svg）在终端下方预览，终端与图片之间的横条可拖动，其它文件编辑文本（二进制或超过 48KB 会拒）。复制移动重命名删除走终端里的 `cp` / `mv` / `rm` / `mkdir` / `cat`，上传下载仍走 SFTP。左右中间的竖条可拖动。
+5. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。
 
 ## 配置文件
 
 `internal/modules/board/config/config.json` 编译进产物，**改完要重新构建才生效**。
-界面上能改 IP、用户、密码，并能选一把本机私钥。端口和超时仍取这里的默认值。
+地址、用户名、密码、密钥在顶栏「凭据」弹层里改，写进共享配置。端口和超时仍取这里的默认值。
 配置解析失败不会让页面打不开，只会退回内置兜底并在顶部显示一条告警。
 
 ```json
@@ -40,10 +41,15 @@
 
 | 字段 | 说明 |
 | --- | --- |
-| `device` | `host` 是界面 IP 框的初始值；`port` / `user` / `password` 连的时候用，不在界面上。`password` 留空就是空密码 |
+| `device` | `host` / `user` / `password` 是没有共享配置时的出厂值；`port` 连的时候用，不在界面上。`password` 留空就是空密码 |
 | `connectTimeoutSeconds` | 建连超时，1–120，省略按 `8`。它覆盖 TCP 建连 + SSH 握手 + 认证三步的总时长 |
 | `commandTimeoutSeconds` | 单条指令的上限，1–600，省略按 `30` |
 | `defaultPath` | 文件标签页打开时填在路径框里的远端目录，省略按 `/opt` |
+
+**共享配置优先。** `Config()` 返回的地址、用户名、密码、密钥路径，优先用
+exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没有或坏掉才退回
+上面这份编译进产物的 `config.json`。顶栏「凭据」弹层的「保存」把当前参数写进共享配置，
+全系列工具下次打开都用新值。
 
 ## 按钮清单文件
 
@@ -77,8 +83,9 @@
 
 | 方法 | 签名 | 说明 |
 | --- | --- | --- |
-| `Config` | `() => Promise<Settings>` | 界面默认值 + 配置告警 |
-| `Connect` | `(d: Device) => Promise<Status>` | 建 SSH 连接并在上面开 SFTP，重复调用先断旧的 |
+| `Config` | `() => Promise<Settings>` | 界面默认值 + 配置告警；地址和 SSH 凭据优先用共享配置 `toolbox-config.json` |
+| `Connect` | `(d: Device) => Promise<Status>` | 建 SSH 连接并在上面开 SFTP，重复调用先断旧的；连上后把地址写进共享配置 |
+| `SaveDevice` | `(d: Device) => Promise<Settings>` | 把连接参数写进共享配置，全系列工具共用；顶栏凭据弹层的「保存」走它 |
 | `Disconnect` | `() => Promise<Status>` | 主动断开 |
 | `Status` | `() => Promise<Status>` | 当前连接状态 |
 | `ListCommands` | `() => Promise<CommandList>` | 读按钮清单（现场优先，没有就出厂默认），不需要连接 |
@@ -94,6 +101,7 @@
 | `CloseTerminal` | `() => Promise<void>` | 只关闭终端，不影响 SSH/SFTP |
 | `ListDir` | `(dir: string) => Promise<Entry[]>` | 列远端目录 |
 | `ReadRemoteText` | `(path: string) => Promise<string>` | 读一份够小的文本，给编辑框用；二进制或超过 48KB 会拒 |
+| `ReadRemoteBytes` | `(path: string) => Promise<string>` | 读一份不超过 4MB 的文件（前端拿到的是 base64），给终端下方预览图片用 |
 | `PickKeyFile` | `() => Promise<string>` | 弹对话框选本机私钥，取消返回空串 |
 | `PickLocalFile` | `() => Promise<string>` | 弹对话框选要上传的本地文件，取消返回空串 |
 | `PickSaveTarget` | `(name: string) => Promise<string>` | 弹对话框选下载落点，取消返回空串 |
@@ -144,14 +152,16 @@
 - **出厂默认与现场覆盖**。和 remote 的点位文件同一套取舍：exe 旁边有合法的
   `board-commands.json` 就用它，没有或坏掉就用编译进产物的 `commands.json`。
   「恢复默认」只删现场文件。导入导出弹系统对话框，校验不过不写盘。
-- **状态栏恒占一行**。三块界面各有一条，没消息时也留着位置。让它按有没有消息进出 DOM 的话，
+- **状态栏恒占一行**。有状态槽的界面各留一条，没消息时也留着位置。让它按有没有消息进出 DOM 的话，
   每操作一下下面整片内容都会跟着上下跳一次，手指还停在原处按钮已经移开了。
-- **文件在左、终端在右，不再分标签**。中间竖条可拖。指令按钮压在终端上方。
+  本页的连接状态槽随连接区一起收进了顶栏，只剩配置告警在有内容时占一行。
+- **文件在左、终端在右，不再分标签**。中间竖条可拖。指令按钮压在终端下方——
+  终端是这页的主角，按钮是顺手工具，不该一进门就占住顶部。
 - **Tab 补全的响铃和半截转义丢掉，半个 UTF-8 也不先解码**，否则 `cd /opt/` 后面会冒问号方块。
-- **终端里执行 `cd` 后同步左边文件路径**。从回显行里解析，相对路径按上一次目录拼。
 - **文件页只列当前这一层**。地址栏可编辑。列表下方留白专门给右键粘贴。
   复制、移动、粘贴、重命名、删除把命令写进同一条 SSH 终端；列目录、上传下载、
-  打开编辑框读内容仍走 SFTP。
+  打开编辑框读内容仍走 SFTP。文件路径不跟终端的 `cd` 走：从回显里解析 cd 只能猜到
+  直接敲的那几条，脚本和别名里的切换都会漏，跟错目录比不跟更害人。
 
 ## 已知限制
 
@@ -180,7 +190,7 @@ internal/modules/board/config.go             配置结构与校验
 internal/modules/board/config/config.json    连接默认值，编译进产物，改完要重新构建
 internal/modules/board/config/commands.json  出厂指令清单，编译进产物
 frontend/src/modules/board/module.ts         模块清单
-frontend/src/modules/board/BoardView.vue     连接区与标签页外壳
+frontend/src/modules/board/BoardView.vue     文件与终端的分栏外壳
 frontend/src/modules/board/CommandPanel.vue  指令按钮、编辑表单与执行终端
 frontend/src/modules/board/FilePanel.vue     远端资源管理器，右键操作走终端
 frontend/src/modules/board/ContextMenu.vue   指令按钮与文件列表共用的右键菜单

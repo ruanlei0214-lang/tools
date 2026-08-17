@@ -54,6 +54,10 @@ export function PickSaveTarget(arg1) {
   return window['go']['board']['Service']['PickSaveTarget'](arg1);
 }
 
+export function ReadRemoteBytes(arg1) {
+  return window['go']['board']['Service']['ReadRemoteBytes'](arg1);
+}
+
 export function ReadRemoteText(arg1) {
   return window['go']['board']['Service']['ReadRemoteText'](arg1);
 }
@@ -76,6 +80,10 @@ export function RunCommandInTerminal(arg1) {
 
 export function SaveCommands(arg1) {
   return window['go']['board']['Service']['SaveCommands'](arg1);
+}
+
+export function SaveDevice(arg1) {
+  return window['go']['board']['Service']['SaveDevice'](arg1);
 }
 
 export function StartTerminal() {

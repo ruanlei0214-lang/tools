@@ -17,13 +17,13 @@ import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 const props = defineProps<{ connected: boolean }>()
 const emit = defineEmits<{
   (e: 'refresh-status'): void
-  (e: 'cwd', path: string): void
 }>()
 
 const commands = ref<board.Command[]>([])
 const listWarning = ref('')
 const busy = ref('')
-const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+// title 是悬停提示：导出导入的结果文案只显示文件名，完整路径挂在 title 上。
+const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string; title?: string } | null>(null)
 const terminalReady = ref(false)
 const terminalOutput = ref('')
 const terminalScreen = ref<HTMLElement | null>(null)
@@ -35,8 +35,6 @@ let writeChain = Promise.resolve()
 let composing = false
 let skipNextKey = false
 let escapeHold = ''
-let cwd = '/root'
-let lastCdLine = ''
 
 // 编辑中的那一条。id 为空表示新增。
 const draft = reactive({ id: '', name: '', command: '' })
@@ -132,7 +130,6 @@ async function pullTerminal() {
     const chunk = await ReadTerminal()
     if (!chunk) return
     appendTerminal(chunk)
-    noteCwdFromOutput()
     if (chunk.includes('[终端已关闭')) {
       terminalReady.value = false
     }
@@ -188,39 +185,6 @@ function holdIncompleteEscape(s: string) {
   }
   escapeHold = ''
   return s
-}
-
-function noteCwdFromOutput() {
-  const lines = terminalOutput.value.split('\n')
-  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--) {
-    const m = lines[i].match(/#\s+cd(?:\s+(.+?))?\s*$/)
-    if (!m) continue
-    if (lines[i] === lastCdLine) return
-    lastCdLine = lines[i]
-    const next = resolveCd(m[1] ?? '')
-    if (next && next !== cwd) {
-      cwd = next
-      emit('cwd', next)
-    }
-    return
-  }
-}
-
-function resolveCd(arg: string) {
-  let a = arg.trim().replace(/^['"]|['"]$/g, '')
-  if (!a || a === '~' || a === '$HOME') return '/root'
-  if (a === '-') return cwd
-  if (a.startsWith('~/')) a = `/root/${a.slice(2)}`
-  if (!a.startsWith('/')) {
-    a = `${cwd === '/' ? '' : cwd}/${a}`
-  }
-  const parts: string[] = []
-  for (const p of a.split('/')) {
-    if (!p || p === '.') continue
-    if (p === '..') parts.pop()
-    else parts.push(p)
-  }
-  return `/${parts.join('/')}`
 }
 
 function sendKeys(text: string) {
@@ -387,7 +351,7 @@ function exportList() {
   return act('export', async () => {
     const path = await ExportCommands()
     if (!path) return
-    banner.value = { kind: 'ok', text: `已导出到 ${path}` }
+    banner.value = { kind: 'ok', text: `已导出：${fileName(path)}`, title: path }
   })
 }
 
@@ -401,7 +365,7 @@ function importList() {
     if (r.canceled) return
     applyList(r.list)
     editing.value = false
-    banner.value = { kind: 'ok', text: `已从 ${fileName(r.path)} 导入，已经生效` }
+    banner.value = { kind: 'ok', text: `已导入：${fileName(r.path)}`, title: r.path }
   })
 }
 
@@ -425,11 +389,45 @@ function fileName(p: string): string {
 
 <template>
   <section class="card command-card">
+    <div class="terminal-panel">
+      <div class="terminal-head">
+        <span class="terminal-title">终端</span>
+        <span class="terminal-state" :class="{ online: terminalReady }">
+          {{ terminalReady ? '已打开' : connected ? '…' : '未连接' }}
+        </span>
+        <button class="terminal-tool" :disabled="!connected" @click="sendCtrlC">Ctrl+C</button>
+        <button class="terminal-tool" :disabled="!connected || !!busy" @click="reopenTerminal">重开</button>
+        <button class="terminal-tool" :disabled="!terminalOutput" @click="terminalOutput = ''">清屏</button>
+      </div>
+      <div class="terminal-body" @click="focusCapture">
+        <pre ref="terminalScreen" class="terminal-screen" :class="{ live: terminalReady }">{{ terminalOutput }}</pre>
+        <textarea
+          ref="terminalCapture"
+          class="terminal-capture"
+          aria-label="终端输入"
+          autocomplete="off"
+          spellcheck="false"
+          :disabled="!connected"
+          @keydown="onTerminalKey"
+          @beforeinput="onBeforeInput"
+          @compositionstart="onCompositionStart"
+          @compositionend="onCompositionEnd"
+        />
+      </div>
+    </div>
+
+    <!-- 指令区压在终端下面：终端是这页的主角，按钮是顺手工具，不该一进门就占住顶部。 -->
     <div class="command-toolbar">
-      <button class="add-command" :disabled="!!busy" @click="startAdd">＋</button>
-      <button :disabled="!!busy" title="导出" @click="exportList">导出</button>
-      <button :disabled="!!busy" title="导入" @click="importList">导入</button>
-      <div v-if="banner || listWarning" class="status" :class="banner?.kind || 'err'" :title="banner?.text || listWarning">
+      <button class="tool-btn add-command" :disabled="!!busy" title="新增指令按钮" @click="startAdd">＋ 新增</button>
+      <span class="tool-sep" />
+      <button class="tool-btn" :disabled="!!busy" title="把清单存成 JSON" @click="exportList">导出</button>
+      <button class="tool-btn" :disabled="!!busy" title="从 JSON 整份替换清单" @click="importList">导入</button>
+      <div
+        v-if="banner || listWarning"
+        class="status"
+        :class="banner?.kind || 'err'"
+        :title="banner?.title || banner?.text || listWarning"
+      >
         {{ banner?.text || listWarning }}
       </div>
     </div>
@@ -479,33 +477,6 @@ function fileName(p: string): string {
       @pick="onMenu"
       @close="menu = null"
     />
-
-    <div class="terminal-panel">
-      <div class="terminal-head">
-        <span class="terminal-title">终端</span>
-        <span class="terminal-state" :class="{ online: terminalReady }">
-          {{ terminalReady ? '已打开' : connected ? '…' : '未连接' }}
-        </span>
-        <button class="terminal-tool" :disabled="!connected" @click="sendCtrlC">Ctrl+C</button>
-        <button class="terminal-tool" :disabled="!connected || !!busy" @click="reopenTerminal">重开</button>
-        <button class="terminal-tool" :disabled="!terminalOutput" @click="terminalOutput = ''">清屏</button>
-      </div>
-      <div class="terminal-body" @click="focusCapture">
-        <pre ref="terminalScreen" class="terminal-screen" :class="{ live: terminalReady }">{{ terminalOutput }}</pre>
-        <textarea
-          ref="terminalCapture"
-          class="terminal-capture"
-          aria-label="终端输入"
-          autocomplete="off"
-          spellcheck="false"
-          :disabled="!connected"
-          @keydown="onTerminalKey"
-          @beforeinput="onBeforeInput"
-          @compositionstart="onCompositionStart"
-          @compositionend="onCompositionEnd"
-        />
-      </div>
-    </div>
   </section>
 </template>
 
@@ -519,34 +490,65 @@ function fileName(p: string): string {
   padding: 8px;
 }
 
+/* 工具行和终端之间划一条细线：它是终端的附属区，不是和终端平起平坐的一块。 */
 .command-toolbar {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 
-.command-toolbar button {
-  min-height: 26px;
-  padding: 0 8px;
+/* 幽灵按钮：平时只有字，悬停才浮出底色。这一行是顺手工具，不该用实心按钮抢眼。 */
+.tool-btn {
+  min-height: 24px;
+  padding: 0 9px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
   font-size: 12px;
+}
+
+.tool-btn:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--text);
 }
 
 .add-command {
   color: var(--accent);
+  font-weight: 600;
 }
 
+.add-command:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tool-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 14px;
+  margin: 0 3px;
+  background: var(--border);
+}
+
+/* 状态条限宽靠右：导出路径这类长消息截断显示，完整内容挂 title，
+   不许把整行撑成一条大横幅。 */
 .status {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  max-width: 45%;
   min-width: 0;
-  height: 26px;
+  height: 24px;
   margin-left: auto;
   padding: 0 8px;
   border-radius: 5px;
   overflow: hidden;
-  font-size: 12px;
-  line-height: 26px;
+  font-size: 11px;
+  line-height: 24px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -571,7 +573,7 @@ function fileName(p: string): string {
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
-  margin-bottom: 6px;
+  margin-top: 6px;
 }
 
 .editor-row input {
@@ -603,7 +605,7 @@ function fileName(p: string): string {
   flex-wrap: wrap;
   gap: 4px;
   max-height: 4.6rem;
-  margin-bottom: 6px;
+  margin-top: 6px;
   overflow: auto;
 }
 

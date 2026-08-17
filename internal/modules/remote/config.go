@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	_ "embed"
+	"embedtools/internal/module"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,7 +73,9 @@ type DeviceSettings struct {
 
 // Device 是控制器远程模式的 WebSocket 地址，最终拼成 ws://host:port/path。
 //
-// Path 只在配置里改，界面上不给输入框：现场要动的是 IP，路径是接一次定死的东西。
+// Host 通常来自共享配置 toolbox-config.json（全系列工具共用一个地址）；
+// 界面上不给 host 输入框，要改地址去共享配置或别的模块改。Port 和 Path 仍归本模块：
+// 端口是接一次定死的东西，路径只在配置里改。
 // 留空按 "/" 处理；连不上时会自动试几个常见路径，见 client.go 的 probePaths。
 type Device struct {
 	Host string `json:"host"`
@@ -210,6 +213,11 @@ func loadSettings() Settings {
 	}
 
 	s.Warning = strings.Join(warns, "；")
+	// 共享配置的地址优先：三个模块连的是同一台控制器，地址只该在一个地方改。
+	// 共享配置里没有地址时，才用本模块自己那份（出厂默认或 remote-config.json 里的）。
+	if host := module.LoadShared().Host; host != "" {
+		s.Device.Host = host
+	}
 	return s
 }
 
@@ -319,6 +327,9 @@ func validatePanel(tab Tab) (Tab, panelSource, error) {
 
 // validateDevice 是界面保存连接参数时的校验入口。先编成 JSON 再交给 parseRoot，
 // 图的是范围规则只有一份：改了 maxRequestTimeout 之后不用记得同步第二处。
+//
+// Host 不在这里校验：它来自共享配置，校验在 module.SaveShared 里。这里只保证
+// 端口、路径、超时这些本模块自己的字段合法。
 func validateDevice(in DeviceSettings) (DeviceSettings, error) {
 	raw, err := json.Marshal(in)
 	if err != nil {

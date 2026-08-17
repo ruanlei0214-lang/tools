@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"embedtools/internal/module"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -707,8 +708,25 @@ func TestServiceResetGoesBackToFactoryDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.Device.Host != factory.Device.Host {
-		t.Fatalf("连接参数没退回出厂默认：%+v", back.Device)
+	// ResetDevice 删掉 remote-config.json，地址、端口、路径整体退回出厂默认。
+	// 地址的修改入口在顶栏凭据弹层（写共享配置），不归本模块的保存管。
+	if back.Device != factory.Device {
+		t.Fatalf("连接参数该整体退回出厂默认：%+v", back.Device)
+	}
+	// 共享配置里有地址时，恢复默认不该把它抹掉——那是全系列工具共用的地址，
+	// 不是本模块自己的连接参数。
+	if err := module.SaveShared(module.Shared{Host: "10.9.8.7"}); err != nil {
+		t.Fatal(err)
+	}
+	back, err = s.ResetDevice()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Device.Host != "10.9.8.7" {
+		t.Fatalf("共享配置的地址不该被 ResetDevice 抹掉：%+v", back.Device)
+	}
+	if back.Device.Port != factory.Device.Port || back.Device.Path != factory.Device.Path {
+		t.Fatalf("端口和路径该退回出厂默认：%+v", back.Device)
 	}
 	// 连点两次「恢复默认」不该报错。
 	if _, err := s.ResetDevice(); err != nil {

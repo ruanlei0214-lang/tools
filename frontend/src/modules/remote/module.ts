@@ -5,6 +5,6 @@ export default {
   id: 'remote',
   name: '远程控制',
   description: '按配置渲染标签页，控制上位机 IO 与寄存器',
-  version: 'V1.3.9',
+  version: 'V1.3.11',
   view: RemoteView,
 } satisfies ModuleManifest

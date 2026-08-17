@@ -30,7 +30,7 @@ wails doctor
 
 ```powershell
 go run ./tools/buildui            # 图形界面；也可双击 tools\BuildUI.exe
-.\build.ps1                      # 构建全部模块，绿色版目录 build\bin\C2toolsV1.0.4\
+.\build.ps1                      # 构建全部模块，绿色版目录 build\bin\C2toolsV1.0.7\
 .\build.ps1 -Profile netcfg-only # 只编译指定 profile 的模块
 go run ./tools/pickbuild         # 交互式挑模块再构建，不用先定义 profile
 wails dev                        # 热重载开发，浏览器调试入口 http://localhost:34115
@@ -207,13 +207,15 @@ import { DoSomething } from '../../../wailsjs/go/foo/Service'
   「测试流程」挂在 IO 控制右侧，从点位里选步骤，单步或按间隔连续触发，用来对节拍
 - 开关量（DI/DO/BOOL）点一下翻转（先读回当前值再写反的）；非开关量（AO/INT/FLOAT）
   在行内填一个值再「下发」；配了 `pulseMs` 的点位还多一个点动（写完等一会儿自动恢复）
-- 一条长连接跑到底，连接状态显式显示，不做自动重连；改了地址也要自己点「重新连接」
+- 一条长连接跑到底，不做自动重连；连接和地址都在顶栏（全系列工具共用），
+  本页只管 WS 端口、路径、超时这些自己的参数，改了要点顶栏「连接」才换过去
 
 ### 终端（board）
 
-通过 SSH 在控制器主板上跑自定义指令、上传下载文件。界面填 IP、用户、密码，也可选本机私钥登录；端口用配置默认值。
+通过 SSH 在控制器主板上跑自定义指令、上传下载文件。IP、用户、密码、私钥都在顶栏的
+「凭据」弹层里填（全系列工具共用一份），端口用配置默认值。
 
-- 连接后左边是文件、右边是终端；点进终端即可直接打字，也可发送 Ctrl+C
+- 在顶栏点「连接」后左边是文件、右边是终端；点进终端即可直接打字，也可发送 Ctrl+C
 - 常用命令是终端上方的小按钮，点击后送入同一个终端；出厂清单编在产物里，现场改过的存在
   exe 同目录的 `board-commands.json`，也可以导入导出
 - 文件操作走 SFTP：不解析 `ls` 的输出，用户填的路径也不会被拼进任何一条 shell 命令

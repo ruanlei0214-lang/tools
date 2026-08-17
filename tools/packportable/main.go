@@ -46,6 +46,9 @@ func factorySeeds(root string) []seed {
 		{filepath.Join(root, "internal", "modules", "remote", "config", "register.json"), "remote-register.json"},
 		{filepath.Join(root, "internal", "modules", "remote", "config", "io-flow.json"), "remote-io-flow.json"},
 		{filepath.Join(root, "internal", "modules", "board", "config", "commands.json"), "board-commands.json"},
+		// 共享配置：host 来自 board 的出厂默认，user/password 也一并带上。
+		// 绿色版第一次打开时三个模块都读这份，不用各自再填一遍。
+		{filepath.Join(root, "internal", "modules", "board", "config", "config.json"), "toolbox-config.json"},
 	}
 }
 
@@ -98,7 +101,8 @@ func pack(root string) error {
 // writeBack 把绿色版目录里改过的配置拷回源码出厂文件。
 // 现场调好点位或指令之后，下次构建要带着走，就走这一步。
 // 绿色版里没有的、和源码一样的，都跳过；坏 JSON 不写，免得把出厂文件毁了。
-// netcfg-state.json 不是出厂配置，不在这份清单里。
+// toolbox-config.json 是共享配置，回写时只取 host 写回 board 的出厂默认，
+// 不整份覆盖——remote 的端口、路径不该被共享配置冲掉。
 func writeBack(root string) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -127,6 +131,51 @@ func writeBack(root string) error {
 		if !json.Valid(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))) {
 			return fmt.Errorf("%s 不是合法 JSON，源码没有改动", from)
 		}
+
+		// 共享配置只回写 host 到 board 的出厂默认，不整份覆盖。
+		if s.dst == "toolbox-config.json" {
+			var shared struct {
+				Host string `json:"host"`
+			}
+			if err := json.Unmarshal(raw, &shared); err != nil {
+				return fmt.Errorf("解析 %s：%w", from, err)
+			}
+			if shared.Host == "" {
+				fmt.Printf("跳过 %s（没有 host）\n", s.dst)
+				continue
+			}
+			// 读 board 出厂默认，只改 host。
+			boardRaw, err := os.ReadFile(s.src)
+			if err != nil {
+				return fmt.Errorf("读 %s：%w", s.src, err)
+			}
+			var boardCfg map[string]any
+			if err := json.Unmarshal(boardRaw, &boardCfg); err != nil {
+				return fmt.Errorf("解析 %s：%w", s.src, err)
+			}
+			dev, ok := boardCfg["device"].(map[string]any)
+			if !ok {
+				dev = map[string]any{}
+				boardCfg["device"] = dev
+			}
+			if dev["host"] == shared.Host {
+				fmt.Printf("未改 %s\n", s.dst)
+				continue
+			}
+			dev["host"] = shared.Host
+			out, err := json.MarshalIndent(boardCfg, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(s.src, out, 0o644); err != nil {
+				return fmt.Errorf("回写 %s：%w", s.dst, err)
+			}
+			rel, _ := filepath.Rel(root, s.src)
+			fmt.Printf("回写 %s → %s（仅 host）\n", s.dst, rel)
+			changed++
+			continue
+		}
+
 		if old, err := os.ReadFile(s.src); err == nil && bytes.Equal(old, raw) {
 			fmt.Printf("未改 %s\n", s.dst)
 			continue

@@ -28,6 +28,8 @@ export function PickLocalFile():Promise<string>;
 
 export function PickSaveTarget(arg1:string):Promise<string>;
 
+export function ReadRemoteBytes(arg1:string):Promise<string>;
+
 export function ReadRemoteText(arg1:string):Promise<string>;
 
 export function ReadTerminal():Promise<string>;
@@ -39,6 +41,8 @@ export function RunCommand(arg1:string):Promise<board.CommandResult>;
 export function RunCommandInTerminal(arg1:string):Promise<void>;
 
 export function SaveCommands(arg1:Array<board.Command>):Promise<board.CommandList>;
+
+export function SaveDevice(arg1:board.Device):Promise<board.Settings>;
 
 export function StartTerminal():Promise<void>;
 

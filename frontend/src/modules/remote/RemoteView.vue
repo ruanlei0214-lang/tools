@@ -1,18 +1,17 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import {
   Config,
-  Connect,
-  Disconnect,
   ResetDevice,
   SaveDevice,
-  Status,
 } from '../../../wailsjs/go/remote/Service'
 import type { remote } from '../../../wailsjs/go/models'
+import { conn, refreshStatus } from '../../shell/connection'
 import IoPanel from './IoPanel.vue'
 import RegisterPanel from './RegisterPanel.vue'
 
-// 标签页与点位来自后端的配置，这里负责渲染、连接，以及连接参数的编辑。
+// 标签页与点位来自后端的配置，这里负责渲染，以及端口、路径、超时这些
+// 本模块自己的参数的编辑。地址和连接按钮归顶栏的全局连接区管。
 const device = reactive<remote.Device>({ host: '', port: 9000, path: '/' })
 const tabs = ref<remote.Tab[]>([])
 const refreshIntervalMs = ref(1000)
@@ -20,7 +19,7 @@ const connectTimeoutSeconds = ref(5)
 const requestTimeoutSeconds = ref(8)
 const configDir = ref('')
 const activeId = ref('')
-const connected = ref(false)
+const connected = computed(() => conn.wsConnected)
 const busy = ref('')
 const configWarning = ref('')
 const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
@@ -63,12 +62,7 @@ onMounted(async () => {
   } catch (e) {
     configWarning.value = `读取配置失败：${String(e)}`
   }
-  // 不自动连接。开机时设备还没起来，一打开就连会把整个程序卡住。
-})
-
-// 连接活在后端，组件销毁不会自动收；不断开的话切走页面还挂着一条 socket。
-onUnmounted(() => {
-  void Disconnect()
+  await syncStatus()
 })
 
 async function call(op: string, fn: () => Promise<void>) {
@@ -83,35 +77,15 @@ async function call(op: string, fn: () => Promise<void>) {
   }
 }
 
-function connect() {
-  return call('connect', async () => {
-    connected.value = false
-    const st = await Connect({
-      host: device.host.trim(),
-      port: Number(device.port) || 9000,
-      path: device.path,
-    })
-    connected.value = st.connected
-    banner.value = { kind: 'ok', text: `已连接 ${st.addr}` }
-  })
-}
-
-function disconnect() {
-  return call('disconnect', async () => {
-    await Disconnect()
-    connected.value = false
-    banner.value = { kind: 'info', text: '已断开连接' }
-  })
-}
-
-// 保存连接参数。超时和刷新间隔存下去就立刻算新的；地址、端口、路径只是存下来，
+// 保存连接参数。超时和刷新间隔存下去就立刻算新的；端口、路径只是存下来，
 // 当前连接一动不动——这个页面上的按钮会动现场的气缸，换设备的时机必须由人决定。
+// 地址不在这一页改：它归顶栏的凭据弹层，保存时带上当前共享的那份只是让校验看到完整配置。
 function saveDevice() {
   return call('save-device', async () => {
-    const connectedTo = connected.value ? await currentAddr() : ''
+    const connectedTo = conn.wsConnected ? conn.wsAddr : ''
     const cfg = await SaveDevice({
       device: {
-        host: device.host.trim(),
+        host: conn.host.trim() || device.host.trim(),
         port: Number(device.port) || 0,
         path: device.path.trim(),
       },
@@ -124,7 +98,7 @@ function saveDevice() {
     const target = `${cfg.device.host}:${cfg.device.port}${cfg.device.path}`
     banner.value =
       connectedTo && !connectedTo.includes(target)
-        ? { kind: 'info', text: `已保存。当前仍连着 ${connectedTo}，点「重新连接」才换到 ${target}` }
+        ? { kind: 'info', text: `已保存。当前仍连着 ${connectedTo}，点顶栏「连接」才换到 ${target}` }
         : { kind: 'ok', text: '已保存，立即生效' }
   })
 }
@@ -133,16 +107,8 @@ function resetDevice() {
   if (!window.confirm('把连接参数恢复成出厂默认？现场改过的这一份会被删掉。')) return
   return call('reset-device', async () => {
     applyConfig(await ResetDevice())
-    banner.value = { kind: 'info', text: '连接参数已恢复出厂默认，地址要点「重新连接」才换过去' }
+    banner.value = { kind: 'info', text: '连接参数已恢复出厂默认，地址要点顶栏「连接」才换过去' }
   })
-}
-
-async function currentAddr(): Promise<string> {
-  try {
-    return (await Status()).addr
-  } catch {
-    return ''
-  }
 }
 
 // 点位面板保存或恢复默认之后，整份配置由它们回传，这里照样走 applyConfig。
@@ -151,34 +117,18 @@ function onConfigUpdated(cfg: remote.Settings) {
 }
 
 // 子面板每次调用失败都会喊一声：连接可能是被控制器单方面断掉的，
-// 那种情况下只有后端知道，界面得跟着把状态改回未连接。
+// 那种情况下只有后端知道，顶栏的状态点得跟着改回未连接。
 async function syncStatus() {
-  try {
-    const st: remote.Status = await Status()
-    connected.value = st.connected
-    if (!st.connected && st.error) {
-      banner.value = { kind: 'err', text: st.error }
-    }
-  } catch {
-    connected.value = false
-  }
+  await refreshStatus()
 }
 </script>
 
 <template>
   <section class="card conn-card">
-    <!-- 标题、地址、按钮、状态同一行：连接区在这三个模块里长一个样，
-         状态紧跟在操作按钮后面，不再单独占一块横幅。 -->
+    <!-- 地址和连接按钮在顶栏：全系列工具共用一台控制器，不在每个页面各连一次。
+         这一行只剩本模块自己的端口和参数入口。 -->
     <div class="conn-row">
-      <h2 class="card-title">控制器连接</h2>
-      <input
-        id="remote-host"
-        v-model.trim="device.host"
-        class="conn-host"
-        aria-label="IP"
-        placeholder="IP"
-        :disabled="!!busy"
-      />
+      <h2 class="card-title">控制器参数</h2>
       <input
         id="remote-port"
         v-model.number="device.port"
@@ -190,10 +140,6 @@ async function syncStatus() {
         placeholder="端口"
         :disabled="!!busy"
       />
-      <button class="primary conn-btn" :disabled="!!busy || !device.host.trim()" @click="connect">
-        {{ busy === 'connect' ? '连接中…' : connected ? '重新连接' : '连接' }}
-      </button>
-      <button class="conn-btn" :disabled="!!busy || !connected" @click="disconnect">断开</button>
       <button
         class="conn-btn"
         :title="paramsOpen ? '收起参数' : '路径、超时、刷新间隔'"
@@ -243,7 +189,7 @@ async function syncStatus() {
           :disabled="!!busy"
         />
       </div>
-      <button class="primary" :disabled="!!busy || !device.host.trim()" @click="saveDevice">
+      <button class="primary" :disabled="!!busy || !conn.host.trim()" @click="saveDevice">
         {{ busy === 'save-device' ? '保存中…' : '保存' }}
       </button>
       <button :disabled="!!busy" @click="resetDevice">
@@ -252,7 +198,7 @@ async function syncStatus() {
       <span
         v-if="configDir"
         class="config-file"
-        :title="`${configDir}\n和 exe 在同一目录，整夹拷走会一起带走。`"
+        :title="`${configDir}\n和 exe 在同一目录，整夹拷走会一起带走。\n地址在顶栏「凭据」里改，全系列工具共用。`"
       >
         配置存在本机
       </span>
@@ -323,11 +269,6 @@ async function syncStatus() {
 .conn-row input {
   padding: 4px 7px;
   font-size: 12px;
-}
-
-.conn-host {
-  flex: 0 1 9.5rem;
-  width: 9.5rem;
 }
 
 .conn-port {

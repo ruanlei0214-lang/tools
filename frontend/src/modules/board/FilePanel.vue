@@ -5,6 +5,7 @@ import {
   ListDir,
   PickLocalFile,
   PickSaveTarget,
+  ReadRemoteBytes,
   ReadRemoteText,
   StartTerminal,
   Upload,
@@ -13,8 +14,11 @@ import {
 import type { board } from '../../../wailsjs/go/models'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 
-const props = defineProps<{ connected: boolean; defaultPath: string; syncPath?: string }>()
-const emit = defineEmits<{ (e: 'refresh-status'): void }>()
+const props = defineProps<{ connected: boolean; defaultPath: string }>()
+const emit = defineEmits<{
+  (e: 'refresh-status'): void
+  (e: 'preview-image', payload: { name: string; mime: string; data: string }): void
+}>()
 
 const path = ref('')
 const listedPath = ref('')
@@ -41,15 +45,6 @@ watch(
   },
 )
 
-watch(
-  () => props.syncPath,
-  (p) => {
-    const next = (p ?? '').replace(/\/+$/, '') || '/'
-    if (!p || !props.connected || next === listedPath.value) return
-    void list(next)
-  },
-)
-
 const canOperate = computed(() => props.connected && !busy.value)
 
 const menuItems = computed<MenuItem[]>(() => {
@@ -69,6 +64,16 @@ const menuItems = computed<MenuItem[]>(() => {
       { id: 'cut', label: '剪切' },
       { id: 'paste', label: '粘贴', disabled: !clip.value },
       { id: 'rename', label: '重命名' },
+      { id: 'delete', label: '删除', danger: true },
+    ]
+  }
+  if (imageMime(e.name)) {
+    return [
+      { id: 'preview', label: '预览' },
+      { id: 'copy', label: '复制' },
+      { id: 'cut', label: '剪切' },
+      { id: 'rename', label: '重命名' },
+      { id: 'download', label: '下载' },
       { id: 'delete', label: '删除', danger: true },
     ]
   }
@@ -107,8 +112,26 @@ function list(dir?: string) {
   })
 }
 
+function imageMime(name: string) {
+  const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+  const mime: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    svg: 'image/svg+xml',
+  }
+  return mime[ext] ?? ''
+}
+
 function open(e: board.Entry) {
   if (!e.isDir) {
+    if (imageMime(e.name)) {
+      void previewImage(e)
+      return
+    }
     void startEdit(e)
     return
   }
@@ -261,6 +284,15 @@ function remove(e: board.Entry) {
   })
 }
 
+function previewImage(e: board.Entry) {
+  const mime = imageMime(e.name)
+  if (!mime) return
+  return act('preview', async () => {
+    const data = await ReadRemoteBytes(remoteOf(e))
+    emit('preview-image', { name: e.name, mime, data })
+  })
+}
+
 function startEdit(e: board.Entry) {
   if (e.isDir) return
   return act('edit', async () => {
@@ -309,6 +341,9 @@ function onMenu(id: string) {
   switch (id) {
     case 'open':
       if (e) void open(e)
+      break
+    case 'preview':
+      if (e) void previewImage(e)
       break
     case 'edit':
       if (e) void startEdit(e)

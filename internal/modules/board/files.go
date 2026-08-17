@@ -16,6 +16,9 @@ import (
 // 文本编辑只读这一档大小：再大就该用本机编辑器，不该塞进对话框。
 const maxEditBytes = 48 * 1024
 
+// 图片预览比文本框宽松：设备上的截图、相机图经常几百 KB，但整颗固件仍不该塞进来。
+const maxPreviewBytes = 4 * 1024 * 1024
+
 // Entry 是远端目录里的一个条目。
 type Entry struct {
 	Name  string `json:"name"`
@@ -86,6 +89,39 @@ func readRemoteText(c *sftp.Client, remotePath string) (string, error) {
 		return "", fmt.Errorf("%s 是二进制文件，不能当文本编辑", remotePath)
 	}
 	return string(data), nil
+}
+
+// readRemoteBytes 读一份够小的文件，给界面预览图片用。
+func readRemoteBytes(c *sftp.Client, remotePath string) ([]byte, error) {
+	remotePath = strings.TrimSpace(remotePath)
+	if remotePath == "" {
+		return nil, errors.New("没有选择要预览的文件")
+	}
+	st, err := c.Stat(remotePath)
+	if err != nil {
+		return nil, fmt.Errorf("读取 %s 的信息失败: %w", remotePath, err)
+	}
+	if st.IsDir() {
+		return nil, fmt.Errorf("%s 是目录", remotePath)
+	}
+	if st.Size() > maxPreviewBytes {
+		return nil, fmt.Errorf("%s 有 %d 字节，超过 %d，不能预览", remotePath, st.Size(), maxPreviewBytes)
+	}
+
+	f, err := c.Open(remotePath)
+	if err != nil {
+		return nil, fmt.Errorf("打开 %s 失败: %w", remotePath, err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxPreviewBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("读取 %s 失败: %w", remotePath, err)
+	}
+	if int64(len(data)) > maxPreviewBytes {
+		return nil, fmt.Errorf("%s 超过 %d 字节，不能预览", remotePath, maxPreviewBytes)
+	}
+	return data, nil
 }
 
 // upload 把本地文件传到远端。

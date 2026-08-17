@@ -2,6 +2,7 @@
 package netcfg
 
 import (
+	"embedtools/internal/module"
 	"fmt"
 	"strings"
 )
@@ -128,11 +129,19 @@ func (s *Service) ApplyConfig(d Device, cfg Config) error {
 }
 
 // Defaults 返回页面的默认值，来自编译进产物的 config.json。
-// 设备地址优先用上次连通过的那个，没有记录才回到配置里的出厂地址。
+// 地址和 SSH 凭据优先用共享配置 toolbox-config.json——三个模块连的是同一台
+// 控制器，顶栏凭据弹层里改过的那份就是这里该用的。没有记录才回到配置里的出厂值。
 func (s *Service) Defaults() Settings {
 	settings := loadSettings()
-	if host := loadLastHost(); host != "" {
-		settings.Device.Host = host
+	shared := module.LoadShared()
+	if shared.Host != "" {
+		settings.Device.Host = shared.Host
+	}
+	if shared.User != "" {
+		settings.Device.User = shared.User
+	}
+	if shared.Password != "" {
+		settings.Device.Password = shared.Password
 	}
 	return settings
 }

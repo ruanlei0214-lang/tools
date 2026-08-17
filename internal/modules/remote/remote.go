@@ -121,6 +121,10 @@ func (s *Service) snapshot() Settings {
 
 // SaveDevice 保存连接参数。校验不过就不写盘，界面上那份也不动。
 //
+// 端口、路径、超时写进本模块自己的 remote-config.json。地址不在这里写：
+// 它在顶栏的凭据弹层里改，归 board.SaveDevice 管，写进共享配置
+// toolbox-config.json；这里保存时带上它只是为了让校验看到完整的一份。
+//
 // 保存不碰连接：地址改了之后是否重连由操作员按「连接」决定。
 // 自动断了重连的话，正在观察某一路信号的人会莫名其妙丢一次连接。
 func (s *Service) SaveDevice(in DeviceSettings) (Settings, error) {

@@ -1,116 +1,56 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { Config, Connect, Disconnect, PickKeyFile, Status } from '../../../wailsjs/go/board/Service'
-import type { board } from '../../../wailsjs/go/models'
+import { computed, onMounted, ref } from 'vue'
+import { Config } from '../../../wailsjs/go/board/Service'
+import { conn, refreshStatus } from '../../shell/connection'
 import CommandPanel from './CommandPanel.vue'
 import FilePanel from './FilePanel.vue'
 
-const device = reactive<board.Device>({ host: '', port: 22, user: 'root', password: '', keyPath: '' })
+// 连接状态归顶栏的全局连接区管：这里只读它的 SSH 状态，不再有自己的连接按钮。
+const connected = computed(() => conn.sshConnected)
 const defaultPath = ref('/opt')
-const syncPath = ref('')
 const fileWidth = ref(320)
 const splitting = ref(false)
-const connected = ref(false)
-const busy = ref('')
+const imagePreview = ref<{ name: string; src: string } | null>(null)
+const imageHeight = ref(240)
+const vSplitting = ref(false)
 const configWarning = ref('')
-const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
-
-// 配置告警与操作结果共用一条状态槽：告警优先，操作只清 banner，冲不掉告警。
-const status = computed(() => {
-  if (configWarning.value) return { kind: 'err' as const, text: configWarning.value }
-  return banner.value
-})
 
 onMounted(async () => {
   try {
     const cfg = await Config()
-    device.host = cfg.device.host
-    device.port = cfg.device.port || 22
-    device.user = cfg.device.user
-    device.password = cfg.device.password
-    device.keyPath = cfg.device.keyPath || ''
     defaultPath.value = cfg.defaultPath
     configWarning.value = cfg.warning
   } catch (e) {
     configWarning.value = `读取配置失败：${String(e)}`
     return
   }
-  // 不自动连接。开机时设备还没起来，一打开就连会把整个程序卡住；
-  // 这里的按钮又是重启进程、删文件这类做过就回不去的事，得人自己按。
   await syncStatus()
 })
 
-// 连接活在后端，组件销毁不会自动收；不断开的话切走页面还挂着一条 SSH 连接。
-onUnmounted(() => {
-  void Disconnect()
-})
-
-async function call(op: string, fn: () => Promise<void>) {
-  busy.value = op
-  banner.value = null
-  try {
-    await fn()
-  } catch (e) {
-    banner.value = { kind: 'err', text: String(e) }
-  } finally {
-    busy.value = ''
-  }
-}
-
-function connect() {
-  return call('connect', async () => {
-    connected.value = false
-    const st = await Connect({
-      host: device.host.trim(),
-      port: Number(device.port) || 22,
-      user: device.user.trim(),
-      password: device.password,
-      keyPath: device.keyPath,
-    })
-    connected.value = st.connected
-    banner.value = { kind: 'ok', text: `已连接 ${st.addr}` }
-  })
-}
-
-function disconnect() {
-  return call('disconnect', async () => {
-    await Disconnect()
-    connected.value = false
-    banner.value = { kind: 'info', text: '已断开连接' }
-  })
-}
-
 // 子面板每次调用失败都会喊一声：连接可能是被设备单方面断掉的（重启、拔网线），
-// 那种情况下只有后端知道，界面得跟着把状态改回未连接。
+// 那种情况下只有后端知道，顶栏的状态点得跟着改回未连接。
 async function syncStatus() {
-  try {
-    const st: board.Status = await Status()
-    connected.value = st.connected
-    if (!st.connected && st.error) {
-      banner.value = { kind: 'err', text: st.error }
-    }
-  } catch {
-    connected.value = false
+  await refreshStatus()
+}
+
+function onPreviewImage(payload: { name: string; mime: string; data: string }) {
+  imagePreview.value = { name: payload.name, src: `data:${payload.mime};base64,${payload.data}` }
+}
+
+function onVSplitDown(e: MouseEvent) {
+  vSplitting.value = true
+  const startY = e.clientY
+  const startH = imageHeight.value
+  const onMove = (ev: MouseEvent) => {
+    imageHeight.value = Math.min(Math.max(startH + startY - ev.clientY, 120), window.innerHeight - 320)
   }
-}
-
-const keyName = computed(() => {
-  const p = device.keyPath
-  if (!p) return ''
-  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
-  return i >= 0 ? p.slice(i + 1) : p
-})
-
-function pickKey() {
-  return call('key', async () => {
-    const path = await PickKeyFile()
-    if (!path) return
-    device.keyPath = path
-  })
-}
-
-function onCwd(p: string) {
-  syncPath.value = p
+  const onUp = () => {
+    vSplitting.value = false
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
 }
 
 function onSplitDown(e: MouseEvent) {
@@ -132,76 +72,37 @@ function onSplitDown(e: MouseEvent) {
 
 <template>
   <div class="board-page">
-  <section class="card conn-card">
-    <div class="conn-row">
-      <h2 class="card-title">主板连接</h2>
-      <input
-        id="board-host"
-        v-model.trim="device.host"
-        class="conn-host"
-        aria-label="IP"
-        placeholder="IP"
-        :disabled="!!busy"
-      />
-      <input
-        id="board-user"
-        v-model.trim="device.user"
-        class="conn-user"
-        aria-label="用户"
-        placeholder="用户"
-        :disabled="!!busy"
-      />
-      <input
-        id="board-pass"
-        v-model="device.password"
-        class="conn-pass"
-        aria-label="密码"
-        type="password"
-        placeholder="密码"
-        :disabled="!!busy"
-      />
-      <button
-        class="conn-btn conn-key"
-        :class="{ on: !!device.keyPath }"
-        :title="device.keyPath || '选择私钥'"
-        :disabled="!!busy"
-        @click="pickKey"
-      >
-        {{ keyName || '密钥' }}
-      </button>
-      <button
-        v-if="device.keyPath"
-        class="conn-btn"
-        title="清除密钥"
-        :disabled="!!busy"
-        @click="device.keyPath = ''"
-      >
-        ×
-      </button>
-      <button
-        class="primary conn-btn"
-        :disabled="!!busy || !device.host.trim() || !device.user.trim()"
-        @click="connect"
-      >
-        {{ busy === 'connect' ? '连接中…' : connected ? '重连' : '连接' }}
-      </button>
-      <button class="conn-btn" :disabled="!!busy || !connected" @click="disconnect">断开</button>
-      <div class="status" :class="status?.kind" :title="status?.text">{{ status?.text }}</div>
-    </div>
-  </section>
+  <!-- 配置告警只在有内容时占一行：连接区收进顶栏之后，这一页平时不该再有横幅。 -->
+  <div v-if="configWarning" class="config-warning" :title="configWarning">{{ configWarning }}</div>
 
   <div class="workspace" :class="{ splitting }">
     <div class="pane pane-file" :style="{ width: `${fileWidth}px` }">
       <FilePanel
         :connected="connected"
         :default-path="defaultPath"
-        :sync-path="syncPath"
         @refresh-status="syncStatus"
+        @preview-image="onPreviewImage"
       />
     </div>
     <div class="splitter" title="拖动调整宽度" @mousedown.prevent="onSplitDown" />
     <div class="pane pane-term">
-      <CommandPanel :connected="connected" @refresh-status="syncStatus" @cwd="onCwd" />
+      <div class="term-stack" :class="{ vsplitting: vSplitting }">
+        <div class="term-main">
+          <CommandPanel :connected="connected" @refresh-status="syncStatus" />
+        </div>
+        <template v-if="imagePreview">
+          <div class="vsplitter" title="拖动调整高度" @mousedown.prevent="onVSplitDown" />
+          <div class="image-pane" :style="{ height: `${imageHeight}px` }">
+            <div class="image-head">
+              <span class="image-name" :title="imagePreview.name">{{ imagePreview.name }}</span>
+              <button type="button" @click="imagePreview = null">关闭</button>
+            </div>
+            <div class="image-body">
+              <img :src="imagePreview.src" :alt="imagePreview.name" />
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
   </div>
@@ -245,6 +146,97 @@ function onSplitDown(e: MouseEvent) {
   height: 100%;
 }
 
+.term-stack {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.term-stack.vsplitting {
+  user-select: none;
+  cursor: row-resize;
+}
+
+.term-main {
+  flex: 1 1 auto;
+  min-height: 140px;
+}
+
+.term-main > :deep(*) {
+  height: 100%;
+}
+
+.vsplitter {
+  flex: 0 0 6px;
+  margin: 2px 0;
+  border-radius: 3px;
+  background: var(--border);
+  cursor: row-resize;
+}
+
+.vsplitter:hover,
+.term-stack.vsplitting .vsplitter {
+  background: var(--accent);
+}
+
+.image-pane {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 120px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #111318;
+}
+
+.image-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 3px 6px 3px 10px;
+  border-bottom: 1px solid #303640;
+  background: #20242b;
+}
+
+.image-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: #e5e7eb;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-head button {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 0 7px;
+  border-color: #424955;
+  background: #2a2f38;
+  color: #cbd5e1;
+  font-size: 10px;
+}
+
+.image-body {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  place-items: center;
+  padding: 8px;
+}
+
+.image-body img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
 .splitter {
   flex: 0 0 6px;
   margin: 0 2px;
@@ -258,90 +250,17 @@ function onSplitDown(e: MouseEvent) {
   background: var(--accent);
 }
 
-.conn-card {
-  margin-bottom: 8px;
-  padding: 6px 8px;
-}
-
-.conn-row {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 标题占定宽不参与压缩：这一行挤的时候先压地址框，标题被压成半个字最难看。 */
-.conn-row .card-title {
+.config-warning {
   flex: 0 0 auto;
-  margin: 0;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.conn-row input {
-  padding: 4px 7px;
-  font-size: 12px;
-}
-
-.conn-host {
-  flex: 0 1 8.5rem;
-  width: 8.5rem;
-}
-
-.conn-user {
-  flex: 0 1 5rem;
-  width: 5rem;
-}
-
-.conn-pass {
-  flex: 0 1 6rem;
-  width: 6rem;
-}
-
-.conn-key {
-  max-width: 7rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conn-key.on {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.conn-btn {
-  flex: 0 0 auto;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-.status {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 26px;
   padding: 0 8px;
   border-radius: 5px;
   overflow: hidden;
+  background: var(--err-soft);
+  color: var(--err);
   font-size: 12px;
   line-height: 26px;
   text-overflow: ellipsis;
   white-space: nowrap;
   user-select: text;
-}
-
-.status.ok {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.status.err {
-  background: var(--err-soft);
-  color: var(--err);
-}
-
-.status.info {
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 </style>

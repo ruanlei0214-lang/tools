@@ -1,10 +1,10 @@
 # 远程控制（remote）
 
-当前版本 **V1.3.9**，声明在 `frontend/src/modules/remote/module.ts`。
+当前版本 **V1.3.11**，声明在 `frontend/src/modules/remote/module.ts`。
 
 ## 做什么
 
-通过控制器远程模式接口控制上位机。页面顶部是连接区，下面是若干标签页。
+通过控制器远程模式接口控制上位机。页面顶部是参数区，下面是若干标签页。
 连接参数、IO 点位、寄存器点位**都在界面上改，改完立即生效**，不用重新构建也不用重启，
 详见「配置文件」。
 
@@ -16,15 +16,16 @@
 **报文格式照文档**：一帧一条 JSON 文本，请求 `{"id","ty","db"}`，响应同结构、
 失败时多一个 `err`。用到的 `ty` 见文档的「IO 相关接口」「寄存器相关接口」。
 
-握手路径文档里没写。连接区「参数」里的路径是首选，连不上时会依次再试
-`/`、`/ws`、`/websocket`、`/api`；真正连上的完整地址会显示在连接行右侧的状态里，
+握手路径文档里没写。参数区「参数」里的路径是首选，连不上时会依次再试
+`/`、`/ws`、`/websocket`、`/api`；真正连上的完整地址会显示在顶栏 WS 状态点的悬停提示里，
 照着把它钉回 `path` 就不用每次再探。主机本身连不上时不做探测，直接报错。
 
 ## 界面操作
 
-1. 顶部连接区一行放标题「控制器连接」、IP、端口、「连接」、「断开」、「参数」，
-   状态贴在同一行右侧（三个模块的连接区都是这个样子）。填好地址后自己点「连接」，
-   页面不会自动连——开机时设备还没起来，一打开就连会把程序卡住。
+1. **连接区在顶栏，不在本页**。顶栏显示共享地址和 SSH / WS 两个状态点，一个「连接」
+   按钮同时建立两条连接；地址在顶栏「凭据」弹层里改，全系列工具共用。
+   本页顶部只剩本模块自己的东西：WS 端口、「参数」（路径、超时、刷新间隔）和状态槽。
+   程序不会自动连——开机时设备还没起来，一打开就连会把程序卡住。
 2. **IO 控制**标签页：操作栏放在点位上方，操作状态显示在同一行右侧；每个分组一列，左右并排（输出 DO 一列、
    输入 DI 一列，左右顺序就是配置里分组的顺序）。一个点位占一行：名称、点位号、
    动作、当前值，当前值恒在行尾。名称上悬停能看到完整名称和这一路的说明。
@@ -43,7 +44,7 @@
    `BOOL` 显示 ON/OFF 并可切换，`INT` 填整数下发，`FLOAT` 填数字或文本下发。读写走
    `RegisterManager/GetRegisterValue` 和 `RegisterManager/SetRegisterValue`
    （见 `doc/api_documentation/远程模式接口说明.md`）。寄存器没有强制标志，配出来的地址都可以写。
-8. 离开模块时连接会自动断开。
+8. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。
 
 ### 改点位
 
@@ -69,13 +70,14 @@
 
 ### 改连接参数
 
-连接区里的「参数」按钮在这一行下面展开路径、建连超时、请求超时、刷新间隔
-（这几个值一年动不了一次，常显会把连接区撑回两行）。「保存」之后：
+参数区的「参数」按钮在这一行下面展开路径、建连超时、请求超时、刷新间隔
+（这几个值一年动不了一次，常显会把参数区撑回两行）。「保存」之后：
 
 - 两个超时按新值算下一次请求，刷新间隔立刻换掉正在跑的定时器，操作栏那句
   「每 N 秒自动刷新」跟着变。
-- 地址、端口、路径只是存下来，**当前连接一动不动**，要用新地址得自己点「重新连接」。
+- 端口、路径只是存下来，**当前连接一动不动**，要用新端口得自己点顶栏「连接」。
   状态栏会提示这一点。不自动重连：这个页面上的按钮会动现场的气缸，换设备的时机由人决定。
+- 地址不在这份参数里：它归顶栏「凭据」弹层，写进共享配置，本模块保存时不再碰它。
 
 ## 关于强制输入
 
@@ -109,12 +111,17 @@
 
 ## 配置文件
 
-配置分两层：
+配置分三层：
 
 | 层 | 位置 | 谁写 |
 | --- | --- | --- |
+| 共享配置 | exe 同目录的 `toolbox-config.json` | 三个模块共用，只放 `host` + SSH 凭据 |
 | 现场配置 | exe 同目录的 `remote-config.json`、`remote-io.json`、`remote-register.json`、`remote-io-flow.json` | 界面上保存或导入时写，优先用 |
 | 出厂默认 | `internal/modules/remote/config/config.json`、`io.json`、`register.json`、`io-flow.json` | 编译进产物，改它要重新构建 |
+
+**地址只在一个地方改。** `toolbox-config.json` 里的 `host` 优先于 `remote-config.json` 里的；
+界面上不再给 host 输入框，要改地址去顶栏「凭据」弹层，保存后全系列工具共用。
+端口、路径、超时仍归本模块，在「参数」里改。
 
 加载时三部分各自「现场那份有就用它，没有就用出厂默认」。干净的一台机器上一份现场配置都没有，
 界面和出厂默认完全一致、没有告警；界面上第一次保存才生成对应文件。「恢复默认」做的事就是
@@ -250,7 +257,7 @@
 | 方法 | 签名 | 说明 |
 | --- | --- | --- |
 | `Config` | `() => Promise<Settings>` | 连接默认值 + 标签页定义 + 配置目录 + 配置告警 |
-| `SaveDevice` | `(in: DeviceSettings) => Promise<Settings>` | 校验并落盘连接参数，回整份配置；不碰当前连接 |
+| `SaveDevice` | `(in: DeviceSettings) => Promise<Settings>` | 校验并落盘连接参数（端口、路径、超时），回整份配置；不碰当前连接，也不写共享配置的地址 |
 | `SavePanel` | `(tab: Tab) => Promise<Settings>` | 校验并落盘整个点位面板，回整份配置 |
 | `ResetDevice` | `() => Promise<Settings>` | 删掉现场那份连接参数，退回出厂默认 |
 | `ResetPanel` | `(kind: string) => Promise<Settings>` | 删掉现场那份（`io` / `register` / `ioflow`），退回出厂默认 |
@@ -273,7 +280,7 @@
 
 `Device`：`{ host, port, path }`。
 `DeviceSettings`：`{ device, connectTimeoutSeconds, requestTimeoutSeconds, refreshIntervalMs }`，
-就是连接区能改的那一组值。
+就是参数区能改的那一组值（`host` 只是随配置带上，改它要去顶栏「凭据」弹层）。
 `IOPoint`：`{ type, port }`。`IOValue`：`{ type, port, value }`。
 `RegisterValue`：`{ address, value }`，`value` 一律转成字符串方便展示。
 `Status`：`{ connected, addr, error }`，`error` 是被动断开的原因。
@@ -374,7 +381,7 @@ internal/modules/remote/config/io.json        出厂默认：IO 点位
 internal/modules/remote/config/register.json  出厂默认：寄存器点位
 internal/modules/remote/config/io-flow.json   出厂默认：IO 测试流程
 frontend/src/modules/remote/module.ts         模块清单
-frontend/src/modules/remote/RemoteView.vue    连接区、连接参数编辑与标签页外壳
+frontend/src/modules/remote/RemoteView.vue    参数区、连接参数编辑与标签页外壳
 frontend/src/modules/remote/IoPanel.vue       IO 点位与状态，右侧挂测试流程
 frontend/src/modules/remote/RegisterPanel.vue 寄存器点位与状态
 frontend/src/modules/remote/FlowPanel.vue     IO 测试流程

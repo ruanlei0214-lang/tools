@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,6 +36,9 @@ func TestPackAssemblesFolderAndKeepsExistingConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(boardDir, "commands.json"), []byte(`[{"factory":"commands.json"}]`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(boardDir, "config.json"), []byte(`{"device":{"host":"192.168.1.136","user":"root"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	dest := filepath.Join(bin, "C2toolsV9.9.9")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
@@ -63,6 +67,9 @@ func TestPackAssemblesFolderAndKeepsExistingConfig(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dest, "board-commands.json")); string(got) != `[{"factory":"commands.json"}]` {
 		t.Fatalf("缺出厂指令清单：%s", got)
 	}
+	if got, _ := os.ReadFile(filepath.Join(dest, "toolbox-config.json")); string(got) != `{"device":{"host":"192.168.1.136","user":"root"}}` {
+		t.Fatalf("缺共享配置：%s", got)
+	}
 	if st, err := os.Stat(filepath.Join(dest, "webview2")); err != nil || !st.IsDir() {
 		t.Fatal("应当建好 webview2 目录")
 	}
@@ -83,6 +90,13 @@ func TestWriteBackCopiesChangedConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(remoteDir, "config.json"), []byte(`{"factory":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	boardDir := filepath.Join(root, "internal", "modules", "board", "config")
+	if err := os.MkdirAll(boardDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(boardDir, "config.json"), []byte(`{"device":{"host":"192.168.1.136","user":"root"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dest := filepath.Join(root, "build", "bin", "C2toolsV9.9.9")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		t.Fatal(err)
@@ -91,6 +105,9 @@ func TestWriteBackCopiesChangedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dest, "remote-config.json"), []byte(`{"factory":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "toolbox-config.json"), []byte(`{"host":"10.9.8.7","user":"root"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,6 +119,16 @@ func TestWriteBackCopiesChangedConfig(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(filepath.Join(remoteDir, "config.json")); string(got) != `{"factory":true}` {
 		t.Fatalf("没改的不该动：%s", got)
+	}
+	// 共享配置的 host 应当写回 board 的出厂默认。
+	boardRaw, _ := os.ReadFile(filepath.Join(boardDir, "config.json"))
+	var boardCfg map[string]any
+	if err := json.Unmarshal(boardRaw, &boardCfg); err != nil {
+		t.Fatal(err)
+	}
+	dev := boardCfg["device"].(map[string]any)
+	if dev["host"] != "10.9.8.7" {
+		t.Fatalf("共享配置的 host 没写回 board：%v", dev["host"])
 	}
 }
 

@@ -182,7 +182,7 @@ func (s *Service) ApplyWifi(d Device, band string, channel int) (string, error) 
 		return "", fmt.Errorf("配置已写入，但重启 WiFi 失败: %w", err)
 	}
 	rememberHost(d.Host)
-	return fmt.Sprintf("WiFi 正在后台重启（%s 信道 %d），有线桥会保持。约 10 秒后再刷新。", band, file.channel), nil
+	return "WiFi 正在重启，约 10 秒后生效", nil
 }
 
 // SSH 走 br0，前台跑 setWifi.sh 会把会话杀掉。整段丢进 nohup。

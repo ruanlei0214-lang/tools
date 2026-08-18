@@ -16,7 +16,7 @@ import { loadShared } from '../../shell/connection'
 // 界面上不暴露编辑，要改去 exe 同目录改那份文件。
 const device = reactive<netcfg.Device>({ host: '', port: 0, user: '', password: '' })
 const form = reactive({ ip: '', mask: '', gateway: '' })
-const defaults = reactive({ mask: '', restoreFile: '', persistIface: '' })
+const defaults = reactive({ mask: '', persistIface: '' })
 const wifiSSID = ref('')
 const wifiChannel = ref('')
 // wifiBand 是设备当前频段（只用于展示），bandChoice 是下拉框里要切到的频段。
@@ -29,7 +29,6 @@ onMounted(async () => {
     const s = await Defaults()
     Object.assign(device, s.device)
     defaults.mask = s.mask
-    defaults.restoreFile = s.restoreFile
     defaults.persistIface = s.persistIface
     form.mask = s.mask
     form.gateway = s.gateway
@@ -186,9 +185,7 @@ function apply() {
     await loadShared()
     banner.value = {
       kind: 'ok',
-      text: persisted
-        ? `配置已下发并写入 ${defaults.restoreFile}，重启后仍然生效。设备地址已切换到 ${target}，连接地址同步更新，请重新点「刷新网络配置」确认。`
-        : `配置已下发。设备地址已切换到 ${target}，连接地址同步更新，请重新点「刷新网络配置」确认。`,
+      text: persisted ? '配置已下发并持久化，请重新刷新确认' : '配置已下发，请重新刷新确认',
     }
   })
 }
@@ -207,10 +204,7 @@ function restore() {
   return call('restore', async () => {
     await refreshDevice()
     await RestoreNetwork(device)
-    banner.value = {
-      kind: 'ok',
-      text: `已删除 ${defaults.restoreFile}，并把 /opt/setBridge.sh、/opt/setWifi.sh 替换为出厂版本。改动要等机器人控制器重启后才会生效。`,
-    }
+    banner.value = { kind: 'ok', text: '已恢复出厂网络配置，请重启控制器' }
     rebootNotice.value = true
   })
 }
@@ -347,7 +341,7 @@ function restore() {
             {{ busy === 'apply' ? '下发中…' : '确认下发' }}
           </button>
           <button :disabled="busy !== ''" @click="confirming = false">取消</button>
-          <span class="hint">下发后当前连接会立即断开，请确认新地址与本机在同一网段。</span>
+          <span class="hint">下发后连接会断开，请确认新地址与本机同网段。</span>
         </template>
         <template v-else>
           <button class="primary" :disabled="!canApply || busy !== ''" @click="confirming = true">

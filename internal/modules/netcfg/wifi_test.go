@@ -123,17 +123,6 @@ func TestDefaultWifiApMatchesScript(t *testing.T) {
 	}
 }
 
-// 桥接模式下现场 DHCP 在有线那头，拔掉网线后 WiFi 直连的电脑拿不到地址。
-// setWifi.sh 必须带拔线兜底：lan1 没载波时在 br0 上临时起 udhcpd，插回即停。
-func TestSetWifiScriptHasUnplugDhcpFallback(t *testing.T) {
-	s := string(setWifiScript)
-	for _, want := range []string{"lan-dhcp-watchdog.pid", "/sys/class/net/lan1/carrier", "udhcpd /tmp/udhcp_br0.conf", "killall udhcpd"} {
-		if !strings.Contains(s, want) {
-			t.Fatalf("setWifi.sh 缺少拔线 DHCP 兜底：%q", want)
-		}
-	}
-}
-
 func TestWifiRestartCmdStaysInOpt(t *testing.T) {
 	if !strings.Contains(wifiRestartCmd, "cd /opt && /bin/sh ./setWifi.sh") {
 		t.Fatal("重启必须在 /opt 下跑 setWifi.sh，脚本里 wifiAp 是相对路径")

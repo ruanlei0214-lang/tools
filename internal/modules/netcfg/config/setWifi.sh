@@ -67,6 +67,9 @@ if [ -n "$br0IP" ]; then
     if ! kill -0 "$(cat /var/run/lan-dhcp-watchdog.pid 2>/dev/null)" 2>/dev/null; then
         (
             echo $$ > /var/run/lan-dhcp-watchdog.pid
+            # 实时任务钉在核 2/3（webarm、CoVision），看门狗钉到核 0-1，
+            # 每 3 秒的 fork/exec 不会落在实时核上引起抖动；子进程继承亲和性
+            taskset -pc 0-1 $$ >/dev/null 2>&1
             seg=$(echo "$br0IP" | cut -d. -f1-3)
             cat > /tmp/udhcp_br0.conf << EOF
 start           $seg.200

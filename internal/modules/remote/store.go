@@ -17,7 +17,6 @@ const (
 	deviceFileName   = "remote-config.json"
 	ioFileName       = "remote-io.json"
 	registerFileName = "remote-register.json"
-	ioFlowFileName   = "remote-io-flow.json"
 )
 
 // errNoOverride 表示这一份现场配置还不存在，该用编译进产物的出厂默认。

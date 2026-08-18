@@ -1,19 +1,16 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue'
 import { WindowSetAlwaysOnTop } from '../wailsjs/runtime/runtime'
-import { PickKeyFile } from '../wailsjs/go/board/Service'
 import { modules } from './shell/registry'
 import { APP_NAME, APP_VERSION } from './shell/version'
-import { conn, connectAll, disconnectAll, loadShared, saveCreds } from './shell/connection'
+import { conn, connectAll, disconnectAll, loadShared } from './shell/connection'
 
 const activeId = ref(modules[0]?.id ?? '')
 const active = computed(() => modules.find((m) => m.id === activeId.value))
 const showAbout = ref(false)
-const showCreds = ref(false)
 const alwaysOnTopKey = 'embedtools.alwaysOnTop'
 const alwaysOnTop = ref(localStorage.getItem(alwaysOnTopKey) === '1')
 const connMsg = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
-const credsError = ref('')
 
 // 一条连接还挂着就算「已连接」：按钮文案跟着变成断开，点一下两条一起收。
 const anyConnected = computed(() => conn.sshConnected || conn.wsConnected)
@@ -51,30 +48,6 @@ function toggleConnect() {
     // 成功不提示，灯亮了就够了；只有失败才占这一格。
     if (r.kind === 'err') connMsg.value = r
   })
-}
-
-async function pickKey() {
-  const path = await PickKeyFile()
-  if (path) conn.keyPath = path
-}
-
-const keyName = computed(() => {
-  const p = conn.keyPath
-  if (!p) return ''
-  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
-  return i >= 0 ? p.slice(i + 1) : p
-})
-
-function saveCredForm() {
-  credsError.value = ''
-  saveCreds()
-    .then(() => {
-      showCreds.value = false
-      connMsg.value = { kind: 'ok', text: '连接参数已保存，全系列工具共用' }
-    })
-    .catch((e) => {
-      credsError.value = String(e)
-    })
 }
 </script>
 
@@ -114,7 +87,10 @@ function saveCredForm() {
         >
           <span class="dot" />WS
         </span>
-        <span class="conn-host" :title="conn.host ? `共享配置：${conn.host}` : '点「凭据」填设备地址'">
+        <span
+          class="conn-host"
+          :title="conn.host ? `改地址和凭据：exe 同目录 toolbox-config.json` : '在 exe 同目录的 toolbox-config.json 里填 host / user / password'"
+        >
           {{ conn.host || '未配置' }}
         </span>
         <button
@@ -123,14 +99,6 @@ function saveCredForm() {
           @click="toggleConnect"
         >
           {{ conn.busy === 'connect' ? '连接中…' : conn.busy === 'disconnect' ? '断开中…' : anyConnected ? '断开' : '连接' }}
-        </button>
-        <button
-          v-if="conn.hasSsh"
-          class="conn-creds"
-          title="地址、用户名、密码、密钥"
-          @click="showCreds = true; credsError = ''"
-        >
-          凭据
         </button>
         <span v-if="connMsg" class="conn-msg" :class="connMsg.kind" :title="connMsg.text">{{ connMsg.text }}</span>
       </div>
@@ -170,37 +138,6 @@ function saveCredForm() {
       </keep-alive>
       <p v-if="!active" class="empty">还没有任何模块，在 src/modules/ 下新建一个目录即可。</p>
     </main>
-  </div>
-
-  <!-- 凭据弹层：全系列工具唯一改地址和 SSH 凭据的地方，保存进共享配置
-       toolbox-config.json，三个模块下次打开用的就是这份。 -->
-  <div v-if="showCreds" class="modal-mask" @click.self="showCreds = false">
-    <div class="modal">
-      <h2 class="modal-title">连接凭据</h2>
-      <p class="creds-sub">全系列工具共用这一份，SSH 和 WebSocket 连的都是它。</p>
-      <div class="creds-grid">
-        <label for="creds-host">设备地址</label>
-        <input id="creds-host" v-model.trim="conn.host" placeholder="192.168.1.100" :disabled="!!conn.busy" />
-        <label for="creds-user">用户名</label>
-        <input id="creds-user" v-model.trim="conn.user" placeholder="root" :disabled="!!conn.busy" />
-        <label for="creds-pass">密码</label>
-        <input id="creds-pass" v-model="conn.password" type="password" placeholder="密码" :disabled="!!conn.busy" />
-        <label>私钥</label>
-        <div class="creds-key">
-          <button :title="conn.keyPath || '选择私钥'" :disabled="!!conn.busy" @click="pickKey">
-            {{ keyName || '选择私钥' }}
-          </button>
-          <button v-if="conn.keyPath" title="清除密钥" :disabled="!!conn.busy" @click="conn.keyPath = ''">×</button>
-        </div>
-      </div>
-      <p v-if="credsError" class="creds-err" :title="credsError">{{ credsError }}</p>
-      <div class="modal-actions">
-        <button :disabled="!!conn.busy" @click="showCreds = false">取消</button>
-        <button class="primary" :disabled="!!conn.busy || !conn.host.trim() || !conn.user.trim()" @click="saveCredForm">
-          {{ conn.busy === 'save' ? '保存中…' : '保存' }}
-        </button>
-      </div>
-    </div>
   </div>
 
   <div v-if="showAbout" class="modal-mask" @click.self="showAbout = false">
@@ -339,12 +276,6 @@ function saveCredForm() {
   font-size: 12px;
 }
 
-.conn-creds {
-  flex: 0 0 auto;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
 .conn-msg {
   flex: 1 1 auto;
   min-width: 0;
@@ -440,50 +371,6 @@ function saveCredForm() {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-}
-
-.creds-sub {
-  margin: 8px 0 12px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-/* 标签窄列在左、输入框在右：和「关于」那份 about-list 一个排法。 */
-.creds-grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 10px 14px;
-  font-size: 13px;
-}
-
-.creds-grid label {
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.creds-grid input {
-  padding: 5px 8px;
-  font-size: 12px;
-}
-
-.creds-key {
-  display: flex;
-  gap: 6px;
-}
-
-.creds-key button {
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-.creds-err {
-  margin: 10px 0 0;
-  overflow: hidden;
-  color: var(--err);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .about-group {

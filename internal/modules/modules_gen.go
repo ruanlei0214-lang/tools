@@ -7,6 +7,7 @@ import (
 	"embedtools/internal/module"
 	"embedtools/internal/modules/board"
 	"embedtools/internal/modules/netcfg"
+	"embedtools/internal/modules/ping"
 	"embedtools/internal/modules/remote"
 )
 
@@ -15,6 +16,7 @@ func All() []module.Module {
 	return []module.Module{
 		board.New(),
 		netcfg.New(),
+		ping.New(),
 		remote.New(),
 	}
 }

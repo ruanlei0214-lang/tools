@@ -3,7 +3,6 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { GetIO, PulseIO, SetIO, SetIOForcedAll, ToggleIO } from '../../../wailsjs/go/remote/Service'
 import type { remote } from '../../../wailsjs/go/models'
 import PointEditor from './PointEditor.vue'
-import FlowPanel from './FlowPanel.vue'
 import { usePanelEdit } from './usePanelEdit'
 
 // intervalMs 是刷新间隔，父组件从配置里读出来传进来。它能在界面上被改掉，
@@ -13,7 +12,6 @@ const props = defineProps<{
   connected: boolean
   intervalMs: number
   configDir: string
-  flowTab?: remote.Tab | null
 }>()
 const emit = defineEmits<{
   (e: 'refresh-status'): void
@@ -310,7 +308,7 @@ function pulseTitle(p: remote.Point): string {
 </script>
 
 <template>
-  <div class="io-page" :class="{ 'has-flow': !!flowTab }">
+  <div class="io-page">
     <div class="io-main">
   <div class="actions io-toolbar">
     <template v-if="!editing">
@@ -460,15 +458,6 @@ function pulseTitle(p: remote.Point): string {
     </section>
   </div>
     </div>
-    <FlowPanel
-      v-if="flowTab"
-      :tab="flowTab"
-      :points="savedPoints"
-      :connected="connected"
-      :config-dir="configDir"
-      @refresh-status="emit('refresh-status')"
-      @config-updated="emit('config-updated', $event)"
-    />
   </div>
 </template>
 
@@ -478,16 +467,6 @@ function pulseTitle(p: remote.Point): string {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
-}
-
-.io-page.has-flow {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 16rem);
-}
-
-@media (max-width: 1100px) {
-  .io-page.has-flow {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .io-main {

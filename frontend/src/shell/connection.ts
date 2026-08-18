@@ -3,7 +3,6 @@ import {
   Config as boardConfig,
   Connect as boardConnect,
   Disconnect as boardDisconnect,
-  SaveDevice as boardSaveDevice,
   Status as boardStatus,
 } from '../../wailsjs/go/board/Service'
 import {
@@ -43,12 +42,12 @@ export const conn = reactive({
   wsAddr: '',
   sshError: '',
   wsError: '',
-  busy: '' as '' | 'connect' | 'disconnect' | 'save',
+  busy: '' as '' | 'connect' | 'disconnect',
   loaded: false,
 })
 
-// loadShared 把共享配置读进界面。只在程序启动时调一次；凭据弹层保存后
-// 会再调，让顶栏的地址跟着变。
+// loadShared 把共享配置读进界面。启动时调一次；点「连接」还会再调，
+// 这样改完 exe 旁边的 toolbox-config.json 不用重启就能用新凭据。
 export async function loadShared() {
   if (hasBoard()) {
     const cfg = await boardConfig()
@@ -93,6 +92,8 @@ export async function connectAll(): Promise<{ kind: 'ok' | 'err'; text: string }
   conn.sshConnected = false
   conn.wsConnected = false
   try {
+    // 先读一遍文件：现场改完 toolbox-config.json 点连接就能用，不用重启。
+    await loadShared()
     const device = {
       host: conn.host.trim(),
       user: conn.user.trim(),
@@ -154,28 +155,6 @@ export async function disconnectAll(): Promise<void> {
     conn.wsAddr = ''
     conn.sshError = ''
     conn.wsError = ''
-    conn.busy = ''
-  }
-}
-
-// saveCreds 把凭据弹层里的地址、用户名、密码、密钥写进共享配置，
-// netcfg 和 remote 下次打开用的就是这份。
-export async function saveCreds() {
-  if (!hasBoard()) return
-  conn.busy = 'save'
-  try {
-    const cfg = await boardSaveDevice({
-      host: conn.host.trim(),
-      port: conn.sshPort || 22,
-      user: conn.user.trim(),
-      password: conn.password,
-      keyPath: conn.keyPath,
-    })
-    conn.host = cfg.device.host
-    conn.user = cfg.device.user
-    conn.password = cfg.device.password
-    conn.keyPath = cfg.device.keyPath || ''
-  } finally {
     conn.busy = ''
   }
 }

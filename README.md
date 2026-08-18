@@ -113,11 +113,13 @@ internal/modules/boundary_test.go 模块独立性检查
 internal/modules/netcfg/         网络配置模块（后端）
 internal/modules/remote/         远程控制模块（后端）
 internal/modules/board/          终端模块（后端）
+internal/modules/ping/           网络检测模块（后端）
 frontend/src/shell/registry.ts   前端模块清单
 frontend/src/shell/modules.gen.ts 生成的前端接线，勿手改
 frontend/src/modules/netcfg/     网络配置模块（前端）
 frontend/src/modules/remote/     远程控制模块（前端）
 frontend/src/modules/board/      终端模块（前端）
+frontend/src/modules/ping/       网络检测模块（前端）
 frontend/src/style.css           设计变量与通用控件样式
 frontend/wailsjs/                Wails 自动生成的 TS 绑定，不要手改
 ```
@@ -201,10 +203,10 @@ import { DoSomething } from '../../../wailsjs/go/foo/Service'
 通过远程模式接口控制上位机的 IO 与寄存器。传输层是 WebSocket（默认
 `ws://192.168.1.136:9000/`），报文沿用接口文档的 `{"id","ty","db"}` 结构。
 
-- 点位和连接参数都在界面上改，改完立即生效，不用动代码也不用重新构建；
+- 点位在界面上改，改完立即生效，不用动代码也不用重新构建；
+  连接参数（端口、路径、超时）在 exe 同目录的 `remote-config.json` 里改，页面不显示；
   现场配置存在 exe 同目录，编译进产物的出厂 JSON 可逐份恢复。
   IO / 寄存器点位也可以用操作栏的导入导出换一份 JSON。
-  「测试流程」挂在 IO 控制右侧，从点位里选步骤，单步或按间隔连续触发，用来对节拍
 - 开关量（DI/DO/BOOL）点一下翻转（先读回当前值再写反的）；非开关量（AO/INT/FLOAT）
   在行内填一个值再「下发」；配了 `pulseMs` 的点位还多一个点动（写完等一会儿自动恢复）
 - 一条长连接跑到底，不做自动重连；连接和地址都在顶栏（全系列工具共用），
@@ -212,8 +214,8 @@ import { DoSomething } from '../../../wailsjs/go/foo/Service'
 
 ### 终端（board）
 
-通过 SSH 在控制器主板上跑自定义指令、上传下载文件。IP、用户、密码、私钥都在顶栏的
-「凭据」弹层里填（全系列工具共用一份），端口用配置默认值。
+通过 SSH 在控制器主板上跑自定义指令、上传下载文件。IP、用户、密码、私钥写在 exe
+同目录的 `toolbox-config.json`（全系列工具共用一份），端口用配置默认值。
 
 - 在顶栏点「连接」后左边是文件、右边是终端；点进终端即可直接打字，也可发送 Ctrl+C
 - 常用命令是终端上方的小按钮，点击后送入同一个终端；出厂清单编在产物里，现场改过的存在
@@ -236,3 +238,16 @@ import { DoSomething } from '../../../wailsjs/go/foo/Service'
 - **配置不持久化。** 只用 `ip` 命令改运行时状态，设备重启后失效。持久化方式各家设备不同
   （`/etc/network/interfaces`、netplan、自定义启动脚本），需要按目标设备补。
 - **不校验主机密钥。** 面向内网设备，且工具本身就会改设备 IP，固定主机密钥没有意义。
+
+### 网络检测（ping）
+
+探测本机所在网络，不连控制器：长 ping 单个地址看通不通，扫网段列出在线设备的
+IP、设备名和 MAC。
+
+- 不需要管理员权限（Windows 上走 `IcmpSendEcho`，和系统 `ping.exe` 同一条路径）
+- 长 ping 每秒一个包，日志逐行显示，随时可停，停时给收发统计和时延
+- 扫描 128 路并发、单地址 500ms 超时，一个 /24 连同设备名解析 1–2 秒出结果
+- 扫描范围是「前三段 + 末段起止」三个框，默认扫 1~254；多块网卡时下拉框选择扫哪块
+- 扫完顺带检查 IP/MAC 冲突（同一 IP 多个 MAC 应答、同一 MAC 对应多个 IP），
+  冲突明细和涉及的行琥珀色高亮
+- MAC 从扫描后的 ARP 缓存读；设备名做反向 DNS，查不到留空

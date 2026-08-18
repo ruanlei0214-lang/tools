@@ -8,10 +8,10 @@ import {
   TestConnection,
 } from '../../../wailsjs/go/netcfg/Service'
 import type { netcfg } from '../../../wailsjs/go/models'
-import { conn, loadShared } from '../../shell/connection'
+import { loadShared } from '../../shell/connection'
 
-// 四个字段都由后端 Defaults() 填入：地址和凭据来自共享配置 toolbox-config.json，
-// 与顶栏凭据弹层里的是同一份。界面上不暴露编辑，要改去顶栏「凭据」。
+// 四个字段都由后端 Defaults() 填入：地址和凭据来自共享配置 toolbox-config.json。
+// 界面上不暴露编辑，要改去 exe 同目录改那份文件。
 const device = reactive<netcfg.Device>({ host: '', port: 0, user: '', password: '' })
 const form = reactive({ ip: '', mask: '', gateway: '' })
 const defaults = reactive({ mask: '', restoreFile: '', persistIface: '' })
@@ -83,13 +83,13 @@ async function call(op: string, fn: () => Promise<void>) {
 }
 
 // refreshDevice 重新取一次共享配置里的地址和凭据。页面是 keep-alive 的，
-// 顶栏凭据弹层改过的值不会自己长进来，每次动设备前先对齐。
+// 文件改过的值不会自己长进来，每次动设备前先对齐。
 async function refreshDevice() {
   const s = await Defaults()
   Object.assign(device, s.device)
 }
 
-// 连得上就顺手把网口读回来：点「测试连接」的人下一步一定是要看网口，中间再让他点一次
+// 连得上就顺手把网口读回来：点「刷新网络配置」的人下一步一定是要看网口，中间再让他点一次
 // 没有意义。读网口失败时错误会盖掉「连接成功」，这是对的——连上了但读不到网口，
 // 能做的事和没连上一样。
 function test() {
@@ -142,8 +142,8 @@ function apply() {
     banner.value = {
       kind: 'ok',
       text: persisted
-        ? `配置已下发并写入 ${defaults.restoreFile}，重启后仍然生效。设备地址已切换到 ${target}，连接地址同步更新，请重新点「测试连接」确认。`
-        : `配置已下发。设备地址已切换到 ${target}，连接地址同步更新，请重新点「测试连接」确认。`,
+        ? `配置已下发并写入 ${defaults.restoreFile}，重启后仍然生效。设备地址已切换到 ${target}，连接地址同步更新，请重新点「刷新网络配置」确认。`
+        : `配置已下发。设备地址已切换到 ${target}，连接地址同步更新，请重新点「刷新网络配置」确认。`,
     }
   })
 }
@@ -164,16 +164,14 @@ function restore() {
 <template>
   <div class="page">
     <header class="page-head">
-      <p class="page-sub">按机柜面板网口改地址：先连设备，再点可改的网口，最后下发。</p>
+      <p class="page-sub">按机柜面板网口改地址：先刷新网络配置，再点可改的网口，最后下发。</p>
     </header>
 
-    <!-- ① 连接：地址来自顶栏的共享配置，只读；这一行只剩本模块的两个操作。 -->
+    <!-- ① 操作行：地址在顶栏，这里不再重复。刷新就是连一次把网口读回来。 -->
     <section class="panel connect-panel">
       <div class="connect-row">
-        <div class="step-label">1 · 连接设备</div>
-        <span class="conn-host-readonly" :title="'共享配置：' + (conn.host || '未配置')">{{ conn.host || '未配置' }}</span>
         <button class="primary connect-btn" :disabled="busy !== ''" @click="test">
-          {{ busy === 'test' ? '连接中…' : '测试连接' }}
+          {{ busy === 'test' ? '刷新中…' : '刷新网络配置' }}
         </button>
         <button class="danger connect-btn restore-btn" :disabled="busy !== ''" @click="restore">
           {{ busy === 'restore' ? '恢复中…' : '一键恢复网络' }}
@@ -189,7 +187,7 @@ function restore() {
     <!-- ② 选口：五个面板口竖排成列表，IP 突出；可改的才像能点，只读的压暗。 -->
     <section v-if="ports.length" class="panel">
       <div class="step-head">
-        <div class="step-label">2 · 选择网口</div>
+        <div class="step-label">1 · 选择网口</div>
         <p v-if="editable.length" class="step-hint">
           可改：{{ editable.map((p) => p.name).join('、') }} · 其余只读
         </p>
@@ -234,7 +232,7 @@ function restore() {
 
     <!-- ③ 改地址：选中后才出现，标题直接点名网口。 -->
     <section v-if="selected" class="panel edit-panel">
-      <div class="step-label">3 · 修改 {{ selected }} 的地址</div>
+      <div class="step-label">2 · 修改 {{ selected }} 的地址</div>
       <p v-if="siblings.length" class="sibling-note">
         {{ siblings.join('、') }} 是同一网口，改一个另外几个一起变。
       </p>
@@ -343,28 +341,6 @@ function restore() {
   align-items: center;
   flex-wrap: nowrap;
   gap: 8px;
-}
-
-.connect-row .step-label {
-  flex: 0 0 auto;
-  margin: 0;
-  white-space: nowrap;
-}
-
-.conn-host-readonly {
-  flex: 0 1 11rem;
-  width: 11rem;
-  padding: 4px 7px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  user-select: text;
 }
 
 .connect-btn {

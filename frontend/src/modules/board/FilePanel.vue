@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import {
   Download,
   ListDir,
@@ -23,12 +23,16 @@ const emit = defineEmits<{
 const path = ref('')
 const listedPath = ref('')
 const entries = ref<board.Entry[]>([])
-const selected = ref<board.Entry | null>(null)
+// 多选：selNames 是选中的名字集，anchorIdx 是 Shift 范围选的锚点（entries 里的下标）。
+const selNames = ref<string[]>([])
+let anchorIdx = -1
 const busy = ref('')
 const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
 const menu = ref<{ x: number; y: number; entry: board.Entry | null } | null>(null)
 const editor = ref<{ path: string; name: string; text: string } | null>(null)
-const clip = ref<{ path: string; name: string; cut: boolean } | null>(null)
+const clip = ref<{ path: string; name: string; cut: boolean }[]>([])
+const renaming = ref<{ from: string; draft: string } | null>(null)
+const renameInput = ref<HTMLInputElement | null>(null)
 
 watch(
   () => props.defaultPath,
@@ -47,14 +51,32 @@ watch(
 
 const canOperate = computed(() => props.connected && !busy.value)
 
+const selectedEntries = computed(() => entries.value.filter((e) => selNames.value.includes(e.name)))
+
+// 右键点中已选中的行就作用于整个选择；点中没选中的行则先把它变成唯一选中。
+function menuTargets(): board.Entry[] {
+  const e = menu.value?.entry
+  if (!e) return []
+  const sel = selectedEntries.value
+  return sel.some((x) => x.name === e.name) ? sel : [e]
+}
+
 const menuItems = computed<MenuItem[]>(() => {
   const e = menu.value?.entry
   if (!e) {
     return [
-      { id: 'paste', label: '粘贴', disabled: !clip.value || !listedPath.value },
+      { id: 'paste', label: '粘贴', disabled: !clip.value.length || !listedPath.value },
       { id: 'mkdir', label: '新建文件夹', disabled: !listedPath.value },
       { id: 'upload', label: '上传' },
       { id: 'refresh', label: '刷新' },
+    ]
+  }
+  const targets = menuTargets()
+  if (targets.length > 1) {
+    return [
+      { id: 'copy', label: `复制 ${targets.length} 项` },
+      { id: 'cut', label: `剪切 ${targets.length} 项` },
+      { id: 'delete', label: `删除 ${targets.length} 项`, danger: true },
     ]
   }
   if (e.isDir) {
@@ -62,7 +84,7 @@ const menuItems = computed<MenuItem[]>(() => {
       { id: 'open', label: '打开' },
       { id: 'copy', label: '复制' },
       { id: 'cut', label: '剪切' },
-      { id: 'paste', label: '粘贴', disabled: !clip.value },
+      { id: 'paste', label: '粘贴', disabled: !clip.value.length },
       { id: 'rename', label: '重命名' },
       { id: 'delete', label: '删除', danger: true },
     ]
@@ -107,9 +129,36 @@ function list(dir?: string) {
     const rows = await ListDir(next)
     entries.value = rows
     listedPath.value = next
-    selected.value = null
+    clearSelection()
+    renaming.value = null
     banner.value = null
   })
+}
+
+function clearSelection() {
+  selNames.value = []
+  anchorIdx = -1
+}
+
+// 单击选一个，Ctrl+单击加选/减选，Shift+单击从锚点选到这一行。
+function onRowClick(ev: MouseEvent, e: board.Entry, i: number) {
+  if (renaming.value) return
+  if (ev.shiftKey && anchorIdx >= 0 && anchorIdx < entries.value.length) {
+    const [a, b] = anchorIdx < i ? [anchorIdx, i] : [i, anchorIdx]
+    selNames.value = entries.value.slice(a, b + 1).map((x) => x.name)
+    return
+  }
+  if (ev.ctrlKey || ev.metaKey) {
+    const next = selNames.value.slice()
+    const at = next.indexOf(e.name)
+    if (at >= 0) next.splice(at, 1)
+    else next.push(e.name)
+    selNames.value = next
+    anchorIdx = i
+    return
+  }
+  selNames.value = [e.name]
+  anchorIdx = i
 }
 
 function imageMime(name: string) {
@@ -190,7 +239,7 @@ function upload() {
   })
 }
 
-function download(row = selected.value) {
+function download(row: board.Entry | null) {
   if (!row || row.isDir) return
   return act('download', async () => {
     const local = await PickSaveTarget(row.name)
@@ -200,59 +249,96 @@ function download(row = selected.value) {
   })
 }
 
-function copy(e: board.Entry) {
-  clip.value = { path: remoteOf(e), name: e.name, cut: false }
-  banner.value = { kind: 'info', text: `已复制 ${e.name}` }
+function copy(list: board.Entry[]) {
+  if (!list.length) return
+  clip.value = list.map((e) => ({ path: remoteOf(e), name: e.name, cut: false }))
+  banner.value = {
+    kind: 'info',
+    text: list.length > 1 ? `已复制 ${list.length} 项` : `已复制 ${list[0].name}`,
+  }
 }
 
-function cut(e: board.Entry) {
-  clip.value = { path: remoteOf(e), name: e.name, cut: true }
-  banner.value = { kind: 'info', text: `已剪切 ${e.name}` }
+function cut(list: board.Entry[]) {
+  if (!list.length) return
+  clip.value = list.map((e) => ({ path: remoteOf(e), name: e.name, cut: true }))
+  banner.value = {
+    kind: 'info',
+    text: list.length > 1 ? `已剪切 ${list.length} 项` : `已剪切 ${list[0].name}`,
+  }
 }
 
-function pasteName(intoDir: string) {
-  if (!clip.value) return ''
-  const exists = intoDir === listedPath.value && entries.value.some((x) => x.name === clip.value?.name)
-  if (!exists) return clip.value.name
-  const dot = clip.value.name.lastIndexOf('.')
-  if (dot > 0) return `${clip.value.name.slice(0, dot)}-副本${clip.value.name.slice(dot)}`
-  return `${clip.value.name}-副本`
+// 同目录粘贴撞名时自动加「-副本」。taken 是目标目录里已占用的名字，
+// 批量粘贴时逐个往里放，后贴的不会顶掉先贴的。
+function pasteName(intoDir: string, name: string, taken: Set<string>) {
+  if (intoDir !== listedPath.value || !taken.has(name)) return name
+  const dot = name.lastIndexOf('.')
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  let out = `${stem}-副本${ext}`
+  let n = 2
+  while (taken.has(out)) {
+    out = `${stem}-副本${n}${ext}`
+    n++
+  }
+  return out
 }
 
 function paste(into?: board.Entry) {
-  if (!clip.value) return
+  if (!clip.value.length) return
   const destDir = into?.isDir ? remoteOf(into) : listedPath.value
   if (!destDir) return
-  const dest = joinPath(destDir, pasteName(destDir))
-  if (dest === clip.value.path) {
+  const items = clip.value
+  const taken = new Set(entries.value.map((x) => x.name))
+  const cmds: string[] = []
+  for (const item of items) {
+    const name = pasteName(destDir, item.name, taken)
+    taken.add(name)
+    const dest = joinPath(destDir, name)
+    if (dest === item.path) continue
+    cmds.push(`${item.cut ? 'mv' : 'cp -a'} ${shQuote(item.path)} ${shQuote(dest)}`)
+  }
+  if (!cmds.length) {
     banner.value = { kind: 'info', text: '源和目标相同' }
     return
   }
-  const op = clip.value.cut ? 'mv' : 'cp -a'
-  const cmd = `${op} ${shQuote(clip.value.path)} ${shQuote(dest)}`
   return act('paste', async () => {
-    await sendShell(cmd)
-    if (clip.value?.cut) clip.value = null
-    banner.value = { kind: 'ok', text: `已在终端执行：${cmd}` }
+    await sendShell(cmds.join('\n'))
+    if (items.some((i) => i.cut)) clip.value = []
+    banner.value = { kind: 'ok', text: `已在终端执行 ${cmds.length} 条命令` }
     await sleep(400)
     await relist()
   })
 }
 
-function rename(e: board.Entry) {
-  const name = window.prompt('新名称', e.name)?.trim()
-  if (!name || name === e.name) return
+function startRename(e: board.Entry) {
+  renaming.value = { from: e.name, draft: e.name }
+  void nextTick(() => {
+    renameInput.value?.focus()
+    renameInput.value?.select()
+  })
+}
+
+function commitRename() {
+  const r = renaming.value
+  if (!r) return
+  const name = r.draft.trim()
+  renaming.value = null
+  if (!name || name === r.from) return
   if (name.includes('/') || name.includes('\\')) {
     banner.value = { kind: 'err', text: '名称里不能有斜杠' }
     return
   }
-  const cmd = `mv ${shQuote(remoteOf(e))} ${shQuote(joinPath(listedPath.value, name))}`
+  const cmd = `mv ${shQuote(joinPath(listedPath.value, r.from))} ${shQuote(joinPath(listedPath.value, name))}`
   return act('rename', async () => {
     await sendShell(cmd)
     banner.value = { kind: 'ok', text: `已在终端执行：${cmd}` }
     await sleep(400)
     await relist()
   })
+}
+
+function cancelRename() {
+  renaming.value = null
 }
 
 function mkdir() {
@@ -271,11 +357,20 @@ function mkdir() {
   })
 }
 
-function remove(e: board.Entry) {
-  const remote = remoteOf(e)
-  const hint = e.isDir ? '将删除整个目录（含里面的文件）' : '删除这个文件'
-  if (!window.confirm(`${hint}？\n\n${remote}`)) return
-  const cmd = e.isDir ? `rm -rf ${shQuote(remote)}` : `rm -f ${shQuote(remote)}`
+function remove(list: board.Entry[]) {
+  if (!list.length) return
+  const multi = list.length > 1
+  const hint = multi
+    ? `将删除这 ${list.length} 项（目录含里面的所有文件）`
+    : list[0].isDir
+      ? '将删除整个目录（含里面的文件）'
+      : '删除这个文件'
+  const detail = multi ? list.map((e) => e.name).join('、') : remoteOf(list[0])
+  if (!window.confirm(`${hint}？\n\n${detail}`)) return
+  const cmd =
+    multi || list[0].isDir
+      ? `rm -rf ${list.map((e) => shQuote(remoteOf(e))).join(' ')}`
+      : `rm -f ${shQuote(remoteOf(list[0]))}`
   return act('delete', async () => {
     await sendShell(cmd)
     banner.value = { kind: 'ok', text: `已在终端执行：${cmd}` }
@@ -324,19 +419,23 @@ async function relist() {
   if (!listedPath.value) return
   try {
     entries.value = await ListDir(listedPath.value)
-    selected.value = null
+    clearSelection()
   } catch {
     /* 命令可能还在跑，列表下次再刷 */
   }
 }
 
 function openMenu(e: MouseEvent, entry: board.Entry | null) {
-  if (entry) selected.value = entry
+  if (entry && !selNames.value.includes(entry.name)) {
+    selNames.value = [entry.name]
+    anchorIdx = entries.value.findIndex((x) => x.name === entry.name)
+  }
   menu.value = { x: e.clientX, y: e.clientY, entry }
 }
 
 function onMenu(id: string) {
   const e = menu.value?.entry
+  const targets = menuTargets()
   menu.value = null
   switch (id) {
     case 'open':
@@ -349,19 +448,19 @@ function onMenu(id: string) {
       if (e) void startEdit(e)
       break
     case 'copy':
-      if (e) copy(e)
+      copy(targets)
       break
     case 'cut':
-      if (e) cut(e)
+      cut(targets)
       break
     case 'paste':
       void paste(e ?? undefined)
       break
     case 'rename':
-      if (e) rename(e)
+      if (e) startRename(e)
       break
     case 'delete':
-      if (e) remove(e)
+      remove(targets)
       break
     case 'download':
       if (e) void download(e)
@@ -400,7 +499,7 @@ function humanSize(n: number) {
       />
       <button :disabled="!canOperate || !path.trim()" @click="list()">刷新</button>
       <button :disabled="!canOperate || !listedPath" @click="upload">上传</button>
-      <button :disabled="!canOperate || !listedPath || !clip" @click="paste()">粘贴</button>
+      <button :disabled="!canOperate || !listedPath || !clip.length" @click="paste()">粘贴</button>
     </div>
     <div v-if="banner" class="status" :class="banner.kind" :title="banner.text">{{ banner.text }}</div>
 
@@ -409,20 +508,33 @@ function humanSize(n: number) {
         <span>名称</span>
         <span class="col-size">大小</span>
       </div>
-      <button
-        v-for="e in entries"
+      <div
+        v-for="(e, i) in entries"
         :key="e.name"
         class="row"
-        :class="{ selected: selected?.name === e.name, dir: e.isDir }"
-        type="button"
-        @click="selected = e"
-        @dblclick="open(e)"
+        :class="{ selected: selNames.includes(e.name), dir: e.isDir }"
+        role="button"
+        tabindex="0"
+        @click="onRowClick($event, e, i)"
+        @dblclick="renaming?.from === e.name ? undefined : open(e)"
         @contextmenu.prevent.stop="openMenu($event, e)"
       >
         <span class="icon" :class="e.isDir ? 'icon-dir' : 'icon-file'" aria-hidden="true" />
-        <span class="name">{{ e.name }}</span>
+        <input
+          v-if="renaming?.from === e.name"
+          ref="renameInput"
+          v-model="renaming.draft"
+          class="rename-input"
+          spellcheck="false"
+          @click.stop
+          @dblclick.stop
+          @keydown.enter.prevent="commitRename"
+          @keydown.esc.prevent="cancelRename"
+          @blur="commitRename"
+        />
+        <span v-else class="name">{{ e.name }}</span>
         <span class="col-size">{{ e.isDir ? '' : humanSize(e.size) }}</span>
-      </button>
+      </div>
       <div class="explorer-pad" />
     </div>
 
@@ -546,6 +658,7 @@ function humanSize(n: number) {
   border-radius: 0;
   background: none;
   text-align: left;
+  cursor: pointer;
 }
 
 .row:nth-child(odd) {
@@ -580,6 +693,17 @@ function humanSize(n: number) {
 .icon-file {
   background: #d7dde6;
   box-shadow: inset 3px 0 0 #b7c0cc;
+}
+
+.rename-input {
+  min-width: 0;
+  width: 100%;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
 }
 
 .name {

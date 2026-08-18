@@ -28,9 +28,6 @@ var ioJSON []byte
 //go:embed config/register.json
 var registerJSON []byte
 
-//go:embed config/io-flow.json
-var ioFlowJSON []byte
-
 const (
 	defaultPort           = 9001
 	defaultConnectTimeout = 5
@@ -86,27 +83,11 @@ type Device struct {
 // Tab 是一个标签页。Kind 决定前端拿什么界面来渲染它，
 // Groups 在 kind 为 io 或 register 时都要用：按钮从这里长出来。
 type Tab struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	Kind        string     `json:"kind"`
-	Description string     `json:"description"`
-	Groups      []Group    `json:"groups,omitempty"`
-	Steps       []FlowStep `json:"steps,omitempty"`
-}
-
-// FlowStep 是测试流程里的一步：在指定时刻对某一路 IO 做一次动作。
-// 单步执行只看这一步本身；DelayMs 是连续跑时本步完成后再等多久。
-type FlowStep struct {
-	Label    string  `json:"label"`
-	Type     string  `json:"type"`
-	Port     int     `json:"port"`
-	Action   string  `json:"action"`
-	Value    string  `json:"value"`
-	OnValue  float64 `json:"onValue"`
-	OffValue float64 `json:"offValue"`
-	PulseMs  int     `json:"pulseMs"`
-	DelayMs  int     `json:"delayMs"`
-	Hint     string  `json:"hint"`
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	Kind        string  `json:"kind"`
+	Description string  `json:"description"`
+	Groups      []Group `json:"groups,omitempty"`
 }
 
 // Group 是一组点位，Title 是这组的小标题。输入和输出各分一组最清楚。
@@ -172,7 +153,6 @@ func panelSources() []panelSource {
 	return []panelSource{
 		{kindIO, "io", ioFileName, ioJSON, "io.json"},
 		{kindRegister, "register", registerFileName, registerJSON, "register.json"},
-		{kindIOFlow, "io-flow", ioFlowFileName, ioFlowJSON, "io-flow.json"},
 	}
 }
 
@@ -350,12 +330,10 @@ func validateDevice(in DeviceSettings) (DeviceSettings, error) {
 const (
 	kindIO       = "io"
 	kindRegister = "register"
-	kindIOFlow   = "ioflow"
-	maxFlowDelay = 60000
 )
 
 func supportedKinds() string {
-	return kindIO + "、" + kindRegister + "、" + kindIOFlow
+	return kindIO + "、" + kindRegister
 }
 
 // parseSettings 拦的都是「界面会当场坏掉」的错：标签页没有、类型拼错、
@@ -467,21 +445,10 @@ func normalizeTab(t *Tab, seen map[string]bool) error {
 	}
 	t.Kind = strings.ToLower(strings.TrimSpace(t.Kind))
 	switch t.Kind {
-	case kindIO, kindRegister, kindIOFlow:
+	case kindIO, kindRegister:
 	default:
 		return fmt.Errorf("标签页 %q 的 kind %q 不认识，只支持 %s", t.ID, t.Kind, supportedKinds())
 	}
-
-	if t.Kind == kindIOFlow {
-		t.Groups = nil
-		for i := range t.Steps {
-			if err := normalizeFlowStep(&t.Steps[i], i); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	t.Steps = nil
 
 	if len(t.Groups) == 0 {
 		return fmt.Errorf("标签页 %q 里没有任何点位组", t.ID)
@@ -542,74 +509,6 @@ func normalizePoint(p *Point, tabID, kind string) error {
 			return fmt.Errorf("点位 %q 的值 %q %v", p.Label, p.Value, err)
 		}
 	}
-	return nil
-}
-
-func normalizeFlowStep(s *FlowStep, i int) error {
-	s.Type = strings.ToUpper(strings.TrimSpace(s.Type))
-	if !validIOType(s.Type) {
-		return fmt.Errorf("测试流程第 %d 步类型 %q 不认识，只支持 DI、DO、AI、AO", i+1, s.Type)
-	}
-	if s.Type == "AI" {
-		return fmt.Errorf("测试流程第 %d 步是 AI，不能下发", i+1)
-	}
-	if s.Port < 0 {
-		return fmt.Errorf("测试流程第 %d 步端口不能为负数", i+1)
-	}
-	if s.Label = strings.TrimSpace(s.Label); s.Label == "" {
-		s.Label = fmt.Sprintf("%s%d", s.Type, s.Port)
-	}
-
-	s.Action = strings.ToLower(strings.TrimSpace(s.Action))
-	if s.Action == "" {
-		if s.Type == "AO" {
-			s.Action = "set"
-		} else {
-			s.Action = "pulse"
-		}
-	}
-	switch s.Action {
-	case "on", "off", "pulse", "set":
-	default:
-		return fmt.Errorf("测试流程第 %d 步动作 %q 不认识，只支持 on、off、pulse、set", i+1, s.Action)
-	}
-	if s.Action == "set" && s.Type != "AO" {
-		return fmt.Errorf("测试流程第 %d 步：set 只给 AO 用", i+1)
-	}
-	if s.Action != "set" && s.Type == "AO" {
-		return fmt.Errorf("测试流程第 %d 步：AO 请用 set", i+1)
-	}
-
-	s.Value = strings.TrimSpace(s.Value)
-	if s.Type == "AO" {
-		s.OnValue, s.OffValue, s.PulseMs = 0, 0, 0
-		if s.Value == "" {
-			return fmt.Errorf("测试流程第 %d 步没有填要下发的值", i+1)
-		}
-		if err := validatePointValue(s.Type, s.Value); err != nil {
-			return fmt.Errorf("测试流程第 %d 步的值 %q %v", i+1, s.Value, err)
-		}
-	} else {
-		if s.OnValue == s.OffValue {
-			s.OnValue, s.OffValue = 1, 0
-		}
-		s.Value = ""
-		if s.Action == "pulse" {
-			if s.PulseMs == 0 {
-				s.PulseMs = defaultPulseMs
-			}
-			if s.PulseMs < 20 || s.PulseMs > maxPulseMs {
-				return fmt.Errorf("测试流程第 %d 步 pulseMs %d 不在 20-%d 之间", i+1, s.PulseMs, maxPulseMs)
-			}
-		} else {
-			s.PulseMs = 0
-		}
-	}
-
-	if s.DelayMs < 0 || s.DelayMs > maxFlowDelay {
-		return fmt.Errorf("测试流程第 %d 步 delayMs %d 不在 0-%d 之间", i+1, s.DelayMs, maxFlowDelay)
-	}
-	s.Hint = strings.TrimSpace(s.Hint)
 	return nil
 }
 

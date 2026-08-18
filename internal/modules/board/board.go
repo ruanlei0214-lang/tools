@@ -146,7 +146,7 @@ func (s *Service) Connect(d Device) (Status, error) {
 }
 
 // SaveDevice 保存连接参数到共享配置。地址、用户名、密码、密钥路径都写进
-// toolbox-config.json，netcfg 和 remote 下次打开用的就是这份。
+// toolbox-config.json。界面不再提供编辑入口，现场改凭据直接改这份文件。
 // 返回更新后的页面默认值（共享配置优先）。
 func (s *Service) SaveDevice(d Device) (Settings, error) {
 	if err := module.SaveShared(module.Shared{

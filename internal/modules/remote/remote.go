@@ -122,8 +122,7 @@ func (s *Service) snapshot() Settings {
 // SaveDevice 保存连接参数。校验不过就不写盘，界面上那份也不动。
 //
 // 端口、路径、超时写进本模块自己的 remote-config.json。地址不在这里写：
-// 它在顶栏的凭据弹层里改，归 board.SaveDevice 管，写进共享配置
-// toolbox-config.json；这里保存时带上它只是为了让校验看到完整的一份。
+// 它在共享配置 toolbox-config.json 里改；这里保存时带上它只是为了让校验看到完整的一份。
 //
 // 保存不碰连接：地址改了之后是否重连由操作员按「连接」决定。
 // 自动断了重连的话，正在观察某一路信号的人会莫名其妙丢一次连接。
@@ -245,14 +244,10 @@ func (s *Service) ImportPanel(kind string) (PanelFileResult, error) {
 }
 
 func panelNoun(src panelSource) string {
-	switch src.kind {
-	case kindIO:
+	if src.kind == kindIO {
 		return "IO 点位"
-	case kindIOFlow:
-		return "测试流程"
-	default:
-		return "寄存器点位"
 	}
+	return "寄存器点位"
 }
 
 func tabByKind(s Settings, kind string) *Tab {
@@ -547,44 +542,6 @@ func (s *Service) PulseIO(point IOPoint, value, offValue float64, pulseMs int) e
 		return fmt.Errorf("%s%d 已置为 %g，但恢复失败：%v", point.Type, point.Port, value, err)
 	}
 	return nil
-}
-
-// RunFlowStep 执行测试流程里的第 index 步（从 0 起）。步骤从当前配置取，
-// 不让前端把动作再送一遍——界面上显示的和实际发出去的必须是同一份。
-func (s *Service) RunFlowStep(index int) error {
-	tab := tabByKind(s.snapshot(), kindIOFlow)
-	if tab == nil {
-		return errors.New("没有测试流程这一页")
-	}
-	if index < 0 || index >= len(tab.Steps) {
-		return fmt.Errorf("步骤 %d 不存在", index+1)
-	}
-	return s.execFlowStep(tab.Steps[index])
-}
-
-func (s *Service) execFlowStep(step FlowStep) error {
-	p := IOPoint{Type: step.Type, Port: step.Port}
-	if step.Type == "DI" {
-		if err := s.SetIOForced(p, true); err != nil {
-			return err
-		}
-	}
-	switch step.Action {
-	case "on":
-		return s.SetIO(p, step.OnValue)
-	case "off":
-		return s.SetIO(p, step.OffValue)
-	case "pulse":
-		return s.PulseIO(p, step.OnValue, step.OffValue, step.PulseMs)
-	case "set":
-		v, err := strconv.ParseFloat(step.Value, 64)
-		if err != nil {
-			return fmt.Errorf("值 %q 不是数字", step.Value)
-		}
-		return s.SetIO(p, v)
-	default:
-		return fmt.Errorf("不认识的动作 %q", step.Action)
-	}
 }
 
 // ToggleIO 先读回当前值再写反的那个，返回写进去的值。

@@ -130,7 +130,7 @@ func (s *Service) ApplyConfig(d Device, cfg Config) error {
 
 // Defaults 返回页面的默认值，来自编译进产物的 config.json。
 // 地址和 SSH 凭据优先用共享配置 toolbox-config.json——三个模块连的是同一台
-// 控制器，顶栏凭据弹层里改过的那份就是这里该用的。没有记录才回到配置里的出厂值。
+// 控制器，改凭据就改 exe 同目录那份文件。没有记录才回到配置里的出厂值。
 func (s *Service) Defaults() Settings {
 	settings := loadSettings()
 	shared := module.LoadShared()

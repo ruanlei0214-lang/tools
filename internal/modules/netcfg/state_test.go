@@ -42,7 +42,7 @@ func TestRememberHostRejectsEmpty(t *testing.T) {
 	}
 }
 
-// 记地址只动 Host 字段：凭据是顶栏凭据弹层管的，netcfg 不能顺手抹掉。
+// 记地址只动 Host 字段：凭据在 toolbox-config.json 里，netcfg 不能顺手抹掉。
 func TestRememberHostKeepsCredentials(t *testing.T) {
 	isolateState(t)
 	if err := module.SaveShared(module.Shared{Host: "192.168.3.136", User: "root", Password: "pw"}); err != nil {

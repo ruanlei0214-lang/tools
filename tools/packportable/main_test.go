@@ -24,7 +24,7 @@ func TestPackAssemblesFolderAndKeepsExistingConfig(t *testing.T) {
 	if err := os.MkdirAll(remoteDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"config.json", "io.json", "register.json", "io-flow.json"} {
+	for _, name := range []string{"config.json", "io.json", "register.json"} {
 		if err := os.WriteFile(filepath.Join(remoteDir, name), []byte(`{"factory":"`+name+`"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}

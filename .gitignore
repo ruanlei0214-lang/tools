@@ -2,6 +2,7 @@ build/bin
 node_modules
 frontend/dist
 frontend/package.json.md5
+tools/BuildUI.exe
 
 # 现场配置落在 exe 同目录。开发时若把 exe 放在仓库根下跑，别把这些文件提交进去。
 remote-config.json

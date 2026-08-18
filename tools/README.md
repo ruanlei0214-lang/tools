@@ -170,7 +170,7 @@ go run ./tools/packportable
 
 - 把 `build\bin\<名字>.exe` 挪进 `build\bin\<名字>\`
 - 拷 remote 的出厂配置、board 的出厂指令清单和共享配置（`remote-config.json` /
-  `remote-io.json` / `remote-register.json` / `remote-io-flow.json` / `board-commands.json` /
+  `remote-io.json` / `remote-register.json` / `board-commands.json` /
   `toolbox-config.json`）。目录里已经有的不覆盖，重建不会冲掉现场改过的。
 - 建好 `webview2\`。程序把 WebView2 用户数据指到这里，第二次打开不用再往 `%APPDATA%` 冷启动。
 

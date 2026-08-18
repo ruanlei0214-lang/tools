@@ -4,8 +4,9 @@
 
 ## 做什么
 
-通过控制器远程模式接口控制上位机。页面顶部是参数区，下面是若干标签页。
-连接参数、IO 点位、寄存器点位**都在界面上改，改完立即生效**，不用重新构建也不用重启，
+通过控制器远程模式接口控制上位机。页面只放标签页（IO / 寄存器），
+连接参数（端口、路径、超时、刷新间隔）在 exe 同目录的 `remote-config.json` 里改，
+页面不显示。IO / 寄存器点位仍在界面上改，改完立即生效，不用重新构建也不用重启，
 详见「配置文件」。
 
 **传输层是 WebSocket**，地址是 `ws://<host>:<port><path>`，默认
@@ -16,15 +17,15 @@
 **报文格式照文档**：一帧一条 JSON 文本，请求 `{"id","ty","db"}`，响应同结构、
 失败时多一个 `err`。用到的 `ty` 见文档的「IO 相关接口」「寄存器相关接口」。
 
-握手路径文档里没写。参数区「参数」里的路径是首选，连不上时会依次再试
+握手路径文档里没写。`remote-config.json` 里的 `path` 是首选，连不上时会依次再试
 `/`、`/ws`、`/websocket`、`/api`；真正连上的完整地址会显示在顶栏 WS 状态点的悬停提示里，
 照着把它钉回 `path` 就不用每次再探。主机本身连不上时不做探测，直接报错。
 
 ## 界面操作
 
 1. **连接区在顶栏，不在本页**。顶栏显示共享地址和 SSH / WS 两个状态点，一个「连接」
-   按钮同时建立两条连接；地址在顶栏「凭据」弹层里改，全系列工具共用。
-   本页顶部只剩本模块自己的东西：WS 端口、「参数」（路径、超时、刷新间隔）和状态槽。
+   按钮同时建立两条连接；地址在 exe 同目录的 `toolbox-config.json` 里改，全系列工具共用。
+   本页不再显示端口和连接参数，要改去 `remote-config.json`。
    程序不会自动连——开机时设备还没起来，一打开就连会把程序卡住。
 2. **IO 控制**标签页：操作栏放在点位上方，操作状态显示在同一行右侧；每个分组一列，左右并排（输出 DO 一列、
    输入 DI 一列，左右顺序就是配置里分组的顺序）。一个点位占一行：名称、点位号、
@@ -39,12 +40,11 @@
 5. 输入点位默认只读（值显示成虚线框）。顶部操作栏的「一键强制」会对配置里**所有 DI** 逐路发
    `SetIOForcedFlag`，打开之后才能切换和点动。再点一次变成「取消强制」。刷新只读当前值，
    不去问强制标志。断开时把本会话打开的强制全部清掉。详见「关于强制输入」。
-6. **测试流程**在 IO 控制右侧单列，尽量少占地方。平时一行一个步骤，只显示名称（默认点动不标；ON / OFF / 下发才标出来），悬停看类型、端口和间隔。点某一步就从那里开始。「单步」触发当前高亮，「连续」按间隔接着跑，跑的时候同一个按钮变成「停止」。点「编辑」再「＋」，先选动作再点左侧点位名称加入（模拟量自动下发）。导入导出和恢复默认收在 ⋯ 里。DI 单步时会先开强制再写。
-7. **寄存器**标签页和 IO 同一套界面：分组、自动刷新、切换、点动、手填下发都从配置里长出来。
+6. **寄存器**标签页和 IO 同一套界面：分组、自动刷新、切换、点动、手填下发都从配置里长出来。
    `BOOL` 显示 ON/OFF 并可切换，`INT` 填整数下发，`FLOAT` 填数字或文本下发。读写走
    `RegisterManager/GetRegisterValue` 和 `RegisterManager/SetRegisterValue`
    （见 `doc/api_documentation/远程模式接口说明.md`）。寄存器没有强制标志，配出来的地址都可以写。
-8. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。
+7. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。
 
 ### 改点位
 
@@ -70,14 +70,11 @@
 
 ### 改连接参数
 
-参数区的「参数」按钮在这一行下面展开路径、建连超时、请求超时、刷新间隔
-（这几个值一年动不了一次，常显会把参数区撑回两行）。「保存」之后：
-
-- 两个超时按新值算下一次请求，刷新间隔立刻换掉正在跑的定时器，操作栏那句
-  「每 N 秒自动刷新」跟着变。
-- 端口、路径只是存下来，**当前连接一动不动**，要用新端口得自己点顶栏「连接」。
-  状态栏会提示这一点。不自动重连：这个页面上的按钮会动现场的气缸，换设备的时机由人决定。
-- 地址不在这份参数里：它归顶栏「凭据」弹层，写进共享配置，本模块保存时不再碰它。
+端口、路径、建连超时、请求超时、刷新间隔在 exe 同目录的 `remote-config.json` 里改
+（出厂默认在 `internal/modules/remote/config/config.json`）。这些值一年动不了一次，
+页面不再摆编辑区。改完重新点顶栏「连接」才会用新端口和路径；
+两个超时和刷新间隔在下次请求 / 下次打开页面时生效。
+地址不在这份文件里：它在 `toolbox-config.json` 里。
 
 ## 关于强制输入
 
@@ -116,12 +113,12 @@
 | 层 | 位置 | 谁写 |
 | --- | --- | --- |
 | 共享配置 | exe 同目录的 `toolbox-config.json` | 三个模块共用，只放 `host` + SSH 凭据 |
-| 现场配置 | exe 同目录的 `remote-config.json`、`remote-io.json`、`remote-register.json`、`remote-io-flow.json` | 界面上保存或导入时写，优先用 |
-| 出厂默认 | `internal/modules/remote/config/config.json`、`io.json`、`register.json`、`io-flow.json` | 编译进产物，改它要重新构建 |
+| 现场配置 | exe 同目录的 `remote-config.json`、`remote-io.json`、`remote-register.json` | 界面上保存或导入时写，优先用 |
+| 出厂默认 | `internal/modules/remote/config/config.json`、`io.json`、`register.json` | 编译进产物，改它要重新构建 |
 
 **地址只在一个地方改。** `toolbox-config.json` 里的 `host` 优先于 `remote-config.json` 里的；
-界面上不再给 host 输入框，要改地址去顶栏「凭据」弹层，保存后全系列工具共用。
-端口、路径、超时仍归本模块，在「参数」里改。
+界面上不再给 host 输入框，要改地址去 exe 同目录的 `toolbox-config.json`，全系列工具共用。
+端口、路径、超时仍归本模块，改 `remote-config.json`，页面不显示。
 
 加载时三部分各自「现场那份有就用它，没有就用出厂默认」。干净的一台机器上一份现场配置都没有，
 界面和出厂默认完全一致、没有告警；界面上第一次保存才生成对应文件。「恢复默认」做的事就是
@@ -135,9 +132,9 @@
 可以照着告警打开它自己修。
 
 配置就在 exe 同目录（`netcfg` 记设备地址、`board` 存按钮清单也在这里）。
-整夹拷走会一起带走；只拷一个 exe 文件则不会。界面上「配置存在本机」悬停能看到完整路径。
+整夹拷走会一起带走；只拷一个 exe 文件则不会。
 
-下面的例子就是三份出厂默认的样子，现场配置的格式完全相同。
+下面的例子就是三份出厂默认的样子（`config.json`、`io.json`、`register.json`），现场配置的格式完全相同。
 
 `config.json` 只管连谁、超时多久：
 
@@ -195,26 +192,6 @@
 }
 ```
 
-`io-flow.json` 管测试流程：
-
-```json
-{
-  "id": "io-flow",
-  "title": "测试流程",
-  "steps": [
-    { "label": "开门指令", "type": "DO", "port": 3, "action": "pulse", "pulseMs": 500, "delayMs": 1000 },
-    { "label": "卡盘夹紧", "type": "DO", "port": 6, "action": "on", "delayMs": 500 }
-  ]
-}
-```
-
-| 字段 | 说明 |
-| --- | --- |
-| `action` | `pulse` 点动、`on` / `off` 置位、`set` 只给 AO。省略时 DO/DI 按 `pulse`，AO 按 `set` |
-| `pulseMs` | 点动持续时间，20–10000，省略按 300 |
-| `delayMs` | 连续跑时本步完成后再等多久，0–60000。单步只作提示 |
-| `value` | `set` 时要下发的数字 |
-
 `config.json` 顶层字段：
 
 | 字段 | 说明 |
@@ -260,7 +237,7 @@
 | `SaveDevice` | `(in: DeviceSettings) => Promise<Settings>` | 校验并落盘连接参数（端口、路径、超时），回整份配置；不碰当前连接，也不写共享配置的地址 |
 | `SavePanel` | `(tab: Tab) => Promise<Settings>` | 校验并落盘整个点位面板，回整份配置 |
 | `ResetDevice` | `() => Promise<Settings>` | 删掉现场那份连接参数，退回出厂默认 |
-| `ResetPanel` | `(kind: string) => Promise<Settings>` | 删掉现场那份（`io` / `register` / `ioflow`），退回出厂默认 |
+| `ResetPanel` | `(kind: string) => Promise<Settings>` | 删掉现场那份（`io` / `register`），退回出厂默认 |
 | `ExportPanel` | `(kind: string) => Promise<string>` | 弹出保存框，把当前这一页写成 JSON；取消返回空字符串 |
 | `ImportPanel` | `(kind: string) => Promise<PanelFileResult>` | 弹出打开框，校验后整份替换这一页；取消时 `canceled` 为真、配置不动 |
 | `Connect` | `(d: Device) => Promise<Status>` | 建 WebSocket 长连接，重复调用先断旧的 |
@@ -271,7 +248,6 @@
 | `SetIOForced` | `(point: IOPoint, forced: boolean) => Promise<void>` | `IOManager/SetIOForcedFlag`，`value` 1 打开 / 0 关掉 |
 | `SetIOForcedAll` | `(points: IOPoint[], forced: boolean) => Promise<void>` | 对一批 DI 逐路发 `SetIOForcedFlag` |
 | `PulseIO` | `(point, value, offValue, pulseMs) => Promise<void>` | 写值、等待、恢复，等待在后端 |
-| `RunFlowStep` | `(index: number) => Promise<void>` | 执行测试流程第 `index` 步（从 0 起），步骤从当前配置取 |
 | `ToggleIO` | `(point, onValue, offValue) => Promise<number>` | 读回当前值再写反的那个，返回写入值 |
 | `GetRegisters` | `(addresses: number[]) => Promise<RegisterValue[]>` | `RegisterManager/GetRegisterValue` |
 | `SetRegister` | `(address: number, value: string) => Promise<void>` | `RegisterManager/SetRegisterValue` |
@@ -280,7 +256,7 @@
 
 `Device`：`{ host, port, path }`。
 `DeviceSettings`：`{ device, connectTimeoutSeconds, requestTimeoutSeconds, refreshIntervalMs }`，
-就是参数区能改的那一组值（`host` 只是随配置带上，改它要去顶栏「凭据」弹层）。
+就是 `remote-config.json` 里那一组值（`host` 只是随配置带上，改它要去 `toolbox-config.json`）。
 `IOPoint`：`{ type, port }`。`IOValue`：`{ type, port, value }`。
 `RegisterValue`：`{ address, value }`，`value` 一律转成字符串方便展示。
 `Status`：`{ connected, addr, error }`，`error` 是被动断开的原因。
@@ -349,8 +325,6 @@
   控制器不认的端口一起发出去。
 - **两页的编辑控件共用**（`PointEditor.vue` 与 `usePanelEdit.ts`）。各写一份就是让它们
   各自漂移——改了 IO 的字段顺序忘了改寄存器那边，界面立刻不一致。
-- **测试流程挂在 IO 页右侧，不当独立标签**。步骤只显示名称，点一下点位就加入；
-  导出、导入、恢复默认收进 ⋯，避免操作栏占两行。
 
 
 ## 已知限制
@@ -379,12 +353,10 @@ internal/modules/remote/store.go              现场配置的读、原子写、�
 internal/modules/remote/config/config.json    出厂默认：连接地址与超时
 internal/modules/remote/config/io.json        出厂默认：IO 点位
 internal/modules/remote/config/register.json  出厂默认：寄存器点位
-internal/modules/remote/config/io-flow.json   出厂默认：IO 测试流程
 frontend/src/modules/remote/module.ts         模块清单
-frontend/src/modules/remote/RemoteView.vue    参数区、连接参数编辑与标签页外壳
-frontend/src/modules/remote/IoPanel.vue       IO 点位与状态，右侧挂测试流程
+frontend/src/modules/remote/RemoteView.vue    标签页外壳（连接参数不在页面上）
+frontend/src/modules/remote/IoPanel.vue       IO 点位与状态
 frontend/src/modules/remote/RegisterPanel.vue 寄存器点位与状态
-frontend/src/modules/remote/FlowPanel.vue     IO 测试流程
 frontend/src/modules/remote/PointEditor.vue   点位编辑表单，两页共用
 frontend/src/modules/remote/usePanelEdit.ts   编辑状态与保存、恢复默认，两页共用
 ```

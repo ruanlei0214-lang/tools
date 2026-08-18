@@ -24,8 +24,6 @@ export function ResetDevice():Promise<remote.Settings>;
 
 export function ResetPanel(arg1:string):Promise<remote.Settings>;
 
-export function RunFlowStep(arg1:number):Promise<void>;
-
 export function SaveDevice(arg1:remote.DeviceSettings):Promise<remote.Settings>;
 
 export function SavePanel(arg1:remote.Tab):Promise<remote.Settings>;

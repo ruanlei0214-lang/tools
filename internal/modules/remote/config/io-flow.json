@@ -1,9 +1,0 @@
-{
-  "id": "io-flow",
-  "title": "测试流程",
-  "steps": [
-    { "label": "开门指令", "type": "DO", "port": 3, "action": "pulse", "pulseMs": 500, "delayMs": 1000 },
-    { "label": "卡盘夹紧", "type": "DO", "port": 6, "action": "pulse", "pulseMs": 500, "delayMs": 1000 },
-    { "label": "关门指令", "type": "DO", "port": 4, "action": "pulse", "pulseMs": 500, "delayMs": 0 }
-  ]
-}

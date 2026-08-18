@@ -321,6 +321,111 @@ export namespace netcfg {
 
 }
 
+export namespace ping {
+	
+	export class Conflict {
+	    kind: string;
+	    addr: string;
+	    peers: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Conflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.addr = source["addr"];
+	        this.peers = source["peers"];
+	    }
+	}
+	export class LocalIface {
+	    name: string;
+	    ip: string;
+	    segment: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalIface(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.ip = source["ip"];
+	        this.segment = source["segment"];
+	    }
+	}
+	export class PingLog {
+	    lines: string[];
+	    running: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PingLog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lines = source["lines"];
+	        this.running = source["running"];
+	    }
+	}
+	export class ScanHost {
+	    ip: string;
+	    name: string;
+	    mac: string;
+	    rttMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScanHost(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.name = source["name"];
+	        this.mac = source["mac"];
+	        this.rttMs = source["rttMs"];
+	    }
+	}
+	export class ScanResult {
+	    hosts: ScanHost[];
+	    conflicts: Conflict[];
+	    total: number;
+	    elapsedMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScanResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hosts = this.convertValues(source["hosts"], ScanHost);
+	        this.conflicts = this.convertValues(source["conflicts"], Conflict);
+	        this.total = source["total"];
+	        this.elapsedMs = source["elapsedMs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace remote {
 	
 	export class Device {
@@ -374,36 +479,6 @@ export namespace remote {
 		    }
 		    return a;
 		}
-	}
-	export class FlowStep {
-	    label: string;
-	    type: string;
-	    port: number;
-	    action: string;
-	    value: string;
-	    onValue: number;
-	    offValue: number;
-	    pulseMs: number;
-	    delayMs: number;
-	    hint: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new FlowStep(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.label = source["label"];
-	        this.type = source["type"];
-	        this.port = source["port"];
-	        this.action = source["action"];
-	        this.value = source["value"];
-	        this.onValue = source["onValue"];
-	        this.offValue = source["offValue"];
-	        this.pulseMs = source["pulseMs"];
-	        this.delayMs = source["delayMs"];
-	        this.hint = source["hint"];
-	    }
 	}
 	export class Point {
 	    label: string;
@@ -501,7 +576,6 @@ export namespace remote {
 	    kind: string;
 	    description: string;
 	    groups?: Group[];
-	    steps?: FlowStep[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Tab(source);
@@ -514,7 +588,6 @@ export namespace remote {
 	        this.kind = source["kind"];
 	        this.description = source["description"];
 	        this.groups = this.convertValues(source["groups"], Group);
-	        this.steps = this.convertValues(source["steps"], FlowStep);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

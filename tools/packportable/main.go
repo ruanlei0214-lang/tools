@@ -44,7 +44,6 @@ func factorySeeds(root string) []seed {
 		{filepath.Join(root, "internal", "modules", "remote", "config", "config.json"), "remote-config.json"},
 		{filepath.Join(root, "internal", "modules", "remote", "config", "io.json"), "remote-io.json"},
 		{filepath.Join(root, "internal", "modules", "remote", "config", "register.json"), "remote-register.json"},
-		{filepath.Join(root, "internal", "modules", "remote", "config", "io-flow.json"), "remote-io-flow.json"},
 		{filepath.Join(root, "internal", "modules", "board", "config", "commands.json"), "board-commands.json"},
 		// 共享配置：host 来自 board 的出厂默认，user/password 也一并带上。
 		// 绿色版第一次打开时三个模块都读这份，不用各自再填一遍。

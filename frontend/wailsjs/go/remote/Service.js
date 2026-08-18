@@ -46,10 +46,6 @@ export function ResetPanel(arg1) {
   return window['go']['remote']['Service']['ResetPanel'](arg1);
 }
 
-export function RunFlowStep(arg1) {
-  return window['go']['remote']['Service']['RunFlowStep'](arg1);
-}
-
 export function SaveDevice(arg1) {
   return window['go']['remote']['Service']['SaveDevice'](arg1);
 }

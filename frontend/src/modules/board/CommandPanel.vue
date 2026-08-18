@@ -35,6 +35,9 @@ let writeChain = Promise.resolve()
 let composing = false
 let skipNextKey = false
 let escapeHold = ''
+// 选中文字时不能改 pre 的内容，否则选择会被冲掉。输出先攒着，松开再贴上去。
+let heldOutput = ''
+let selecting = false
 
 // 编辑中的那一条。id 为空表示新增。
 const draft = reactive({ id: '', name: '', command: '' })
@@ -56,12 +59,16 @@ onMounted(async () => {
   } catch (e) {
     listWarning.value = `读取按钮清单失败：${String(e)}`
   }
+  window.addEventListener('mouseup', onSelectEnd)
+  window.addEventListener('keydown', onWindowKey)
   terminalTimer = window.setInterval(() => {
     void pullTerminal()
   }, 150)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('mouseup', onSelectEnd)
+  window.removeEventListener('keydown', onWindowKey)
   if (terminalTimer !== undefined) window.clearInterval(terminalTimer)
   void CloseTerminal()
 })
@@ -123,14 +130,40 @@ function ensureTerminal(): Promise<void> {
   return terminalStart
 }
 
+function terminalHasSelection() {
+  const el = terminalScreen.value
+  const sel = window.getSelection()
+  if (!el || !sel || sel.isCollapsed || !sel.rangeCount) return false
+  const node = sel.anchorNode
+  return !!(node && el.contains(node))
+}
+
+function shouldHoldOutput() {
+  return selecting || terminalHasSelection()
+}
+
+function onSelectStart() {
+  selecting = true
+}
+
+function onSelectEnd() {
+  selecting = false
+}
+
 async function pullTerminal() {
   if (!terminalReady.value || terminalReading) return
   terminalReading = true
   try {
     const chunk = await ReadTerminal()
-    if (!chunk) return
-    appendTerminal(chunk)
-    if (chunk.includes('[终端已关闭')) {
+    if (shouldHoldOutput()) {
+      if (chunk) heldOutput += chunk
+      return
+    }
+    const pending = heldOutput + (chunk || '')
+    heldOutput = ''
+    if (!pending) return
+    appendTerminal(pending)
+    if (pending.includes('[终端已关闭')) {
       terminalReady.value = false
     }
     await nextTick()
@@ -215,7 +248,19 @@ const specialKeys: Record<string, string> = {
 }
 
 function focusCapture() {
+  // 点一下是为了接着打字；已经划了字就别抢焦点，否则选区会被清掉。
+  if (selecting || terminalHasSelection()) return
   if (props.connected) terminalCapture.value?.focus()
+}
+
+function onWindowKey(e: KeyboardEvent) {
+  if (!terminalHasSelection()) return
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+    const sel = window.getSelection()?.toString()
+    if (!sel) return
+    e.preventDefault()
+    void navigator.clipboard.writeText(sel)
+  }
 }
 
 function onTerminalKey(e: KeyboardEvent) {
@@ -399,7 +444,7 @@ function fileName(p: string): string {
         <button class="terminal-tool" :disabled="!connected || !!busy" @click="reopenTerminal">重开</button>
         <button class="terminal-tool" :disabled="!terminalOutput" @click="terminalOutput = ''">清屏</button>
       </div>
-      <div class="terminal-body" @click="focusCapture">
+      <div class="terminal-body" @mousedown="onSelectStart" @click="focusCapture">
         <pre ref="terminalScreen" class="terminal-screen" :class="{ live: terminalReady }">{{ terminalOutput }}</pre>
         <textarea
           ref="terminalCapture"

@@ -15,7 +15,7 @@ import (
 // 只是下次打开会退回默认地址，所以记日志而不是往上抛。
 //
 // 地址没变时也照写：省掉那次写要先把旧值读回来解析一遍，而读加解析比写 30 字节更贵。
-// 只动 Host 这一个字段，凭据是顶栏凭据弹层管的，这里不能顺手抹掉。
+// 只动 Host 这一个字段，凭据在 toolbox-config.json 里，这里不能顺手抹掉。
 func rememberHost(host string) {
 	if host == "" {
 		return

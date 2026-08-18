@@ -50,8 +50,9 @@ async function poll() {
 
 onBeforeUnmount(() => {
   window.clearTimeout(timer)
-  // 页面被切走（模块切换会卸载组件）时把后端的 ping 也停掉，
-  // 不然它对着一个没人看的缓冲区跑到天荒地老。
+  // 模块切换走 keep-alive，是停用不是卸载，不会进这里——长 ping 在后台照跑，
+  // 日志照攒（缓冲区有上限），切回来接着看。这里只管整个视图被销毁的时候
+  // （比如程序退出），把后端的长 ping 收掉，别让它对着没人看的缓冲区跑。
   if (running.value) StopPing()
 })
 </script>

@@ -27,11 +27,12 @@ const (
 	wifi24GChannelHint = "1-13"
 )
 
-// WifiAp 给界面看。密码不往前端传。
+// WifiAp 给界面看。密码也下发：编辑框是密码框，不遮就改不了。
 type WifiAp struct {
-	SSID    string `json:"ssid"`
-	Channel int    `json:"channel"`
-	Band    string `json:"band"`
+	SSID     string `json:"ssid"`
+	Password string `json:"password"`
+	Channel  int    `json:"channel"`
+	Band     string `json:"band"`
 }
 
 type wifiApFile struct {
@@ -92,6 +93,17 @@ func validateChannel(band string, ch int) error {
 	return fmt.Errorf("5G 信道只能是 %s，当前是 %d", wifi5GChannelHint, ch)
 }
 
+// validateWifiAp 拦住 hostapd 起不来的输入：SSID 最长 32 字节，WPA2 密码 8-63 位。
+func validateWifiAp(ssid, password string) error {
+	if ssid == "" || len(ssid) > 32 {
+		return fmt.Errorf("WiFi 名不能为空且不超过 32 个字符")
+	}
+	if len(password) < 8 || len(password) > 63 {
+		return fmt.Errorf("WiFi 密码必须是 8-63 位")
+	}
+	return nil
+}
+
 // 信道和新频段对不上时 hostapd 起不来，切频段时顺手拉回合法值。
 func defaultChannel(band string) int {
 	if band == band24G {
@@ -137,7 +149,7 @@ func (s *Service) GetWifiAp(d Device) (WifiAp, error) {
 		return WifiAp{}, err
 	}
 	rememberHost(d.Host)
-	return WifiAp{SSID: file.ssid, Channel: file.channel, Band: file.band}, nil
+	return WifiAp{SSID: file.ssid, Password: file.password, Channel: file.channel, Band: file.band}, nil
 }
 
 func writeWifiAp(client *ssh.Client, f wifiApFile) error {
@@ -147,12 +159,15 @@ func writeWifiAp(client *ssh.Client, f wifiApFile) error {
 	return nil
 }
 
-// ApplyWifi 写入频段和信道，然后后台整段重启 WiFi。channel 为 0 表示保持当前信道；
-// 当前信道和新频段对不上时拉回默认值——hostapd 对不上就起不来。
+// ApplyWifi 写入 WiFi 名、密码、频段和信道，然后后台整段重启 WiFi。
+// channel 为 0 表示保持当前信道；当前信道和新频段对不上时拉回默认值——hostapd 对不上就起不来。
 //
 // 不做「只重载 hostapd」的轻量路径：切频段要重跑 fcu760k_ap.sh 重建配置，
 // 两条路径并存只会让「什么时候该按哪个」变成现场要判断的事。一个按钮，一律重启。
-func (s *Service) ApplyWifi(d Device, band string, channel int) (string, error) {
+func (s *Service) ApplyWifi(d Device, ssid, password, band string, channel int) (string, error) {
+	if err := validateWifiAp(ssid, password); err != nil {
+		return "", err
+	}
 	if err := validateBand(band); err != nil {
 		return "", err
 	}
@@ -174,6 +189,8 @@ func (s *Service) ApplyWifi(d Device, band string, channel int) (string, error) 
 	} else if validateChannel(band, file.channel) != nil {
 		file.channel = defaultChannel(band)
 	}
+	file.ssid = ssid
+	file.password = password
 	file.band = band
 	if err := writeWifiAp(client, file); err != nil {
 		return "", err

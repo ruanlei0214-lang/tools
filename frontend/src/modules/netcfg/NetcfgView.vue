@@ -18,6 +18,7 @@ const device = reactive<netcfg.Device>({ host: '', port: 0, user: '', password: 
 const form = reactive({ ip: '', mask: '', gateway: '' })
 const defaults = reactive({ mask: '', persistIface: '' })
 const wifiSSID = ref('')
+const wifiPassword = ref('')
 const wifiChannel = ref('')
 // wifiBand 是设备当前频段（只用于展示），bandChoice 是下拉框里要切到的频段。
 const wifiBand = ref<'5G' | '2.4G'>('5G')
@@ -69,8 +70,11 @@ const channelHint = computed(() =>
   bandChoice.value === '2.4G' ? '2.4G 可用信道：1-13' : '5G 可用信道：36 / 40 / 44 / 48 / 149 / 153 / 157 / 161 / 165',
 )
 
-// 信道留空表示保持现状；填了就必须落在所选频段的合法范围里。
+// 信道留空表示保持现状；WiFi 名和密码是 hostapd 的硬约束，不满足就不让点。
 const canApplyWifi = computed(() => {
+  const ssid = wifiSSID.value.trim()
+  if (ssid === '' || ssid.length > 32) return false
+  if (wifiPassword.value.length < 8 || wifiPassword.value.length > 63) return false
   if (wifiChannel.value === '') return true
   const n = Number(wifiChannel.value)
   if (!Number.isInteger(n)) return false
@@ -127,6 +131,7 @@ function resetView() {
   confirming.value = false
   restorable.value = false
   wifiSSID.value = ''
+  wifiPassword.value = ''
   wifiChannel.value = ''
   wifiBand.value = '5G'
   bandChoice.value = '5G'
@@ -144,6 +149,7 @@ function test() {
     try {
       const wifi = await GetWifiAp(device)
       wifiSSID.value = wifi.ssid
+      wifiPassword.value = wifi.password
       wifiChannel.value = wifi.channel > 0 ? String(wifi.channel) : ''
       wifiBand.value = wifi.band === '2.4G' ? '2.4G' : '5G'
       bandChoice.value = wifiBand.value
@@ -194,9 +200,9 @@ function applyWifi() {
   return call('wifi', async () => {
     await refreshDevice()
     const ch = wifiChannel.value === '' ? 0 : Number(wifiChannel.value)
-    const out = await ApplyWifi(device, bandChoice.value, ch)
+    const out = await ApplyWifi(device, wifiSSID.value.trim(), wifiPassword.value, bandChoice.value, ch)
     wifiBand.value = bandChoice.value
-    banner.value = { kind: 'ok', text: out || 'WiFi 正在后台重启' }
+    banner.value = { kind: 'ok', text: out || 'WiFi 正在重启' }
   })
 }
 
@@ -238,9 +244,23 @@ function restore() {
       <div v-if="restorable" class="wifi-block">
         <div class="wifi-head">
           <div class="wifi-title">WiFi 设置</div>
-          <span v-if="wifiSSID" class="wifi-ssid" :title="wifiSSID">{{ wifiSSID }}</span>
         </div>
         <div class="toolbar">
+          <div class="field ssid-field">
+            <label for="ssid">WiFi 名</label>
+            <input id="ssid" v-model.trim="wifiSSID" maxlength="32" placeholder="760K" />
+          </div>
+          <div class="field pass-field">
+            <label for="wpass">密码</label>
+            <input
+              id="wpass"
+              v-model="wifiPassword"
+              type="password"
+              autocomplete="off"
+              title="8-63 位"
+              placeholder="8-63 位"
+            />
+          </div>
           <div class="field band-field">
             <label for="band">频段（当前 {{ wifiBand }}）</label>
             <select id="band" v-model="bandChoice">
@@ -435,6 +455,14 @@ function restore() {
   flex: 0 0 150px;
 }
 
+.ssid-field {
+  flex: 0 1 170px;
+}
+
+.pass-field {
+  flex: 0 1 150px;
+}
+
 .chan-field {
   flex: 0 0 88px;
 }
@@ -447,16 +475,6 @@ function restore() {
 
 .chan-hint.err {
   color: var(--err);
-}
-
-.wifi-ssid {
-  min-width: 0;
-  max-width: 180px;
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 竖排列表：行距压紧，四列对齐表头。 */

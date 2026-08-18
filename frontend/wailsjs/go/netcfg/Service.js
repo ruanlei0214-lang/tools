@@ -6,8 +6,8 @@ export function ApplyConfig(arg1, arg2) {
   return window['go']['netcfg']['Service']['ApplyConfig'](arg1, arg2);
 }
 
-export function ApplyWifi(arg1, arg2, arg3) {
-  return window['go']['netcfg']['Service']['ApplyWifi'](arg1, arg2, arg3);
+export function ApplyWifi(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['netcfg']['Service']['ApplyWifi'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function Defaults() {

@@ -81,6 +81,24 @@ func TestValidateBand(t *testing.T) {
 	}
 }
 
+func TestValidateWifiAp(t *testing.T) {
+	if err := validateWifiAp("760K", "codroid123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWifiAp("", "codroid123"); err == nil {
+		t.Fatal("空 SSID 必须拒绝")
+	}
+	if err := validateWifiAp(strings.Repeat("a", 33), "codroid123"); err == nil {
+		t.Fatal("超过 32 字节的 SSID 必须拒绝")
+	}
+	if err := validateWifiAp("760K", "short"); err == nil {
+		t.Fatal("少于 8 位的密码必须拒绝")
+	}
+	if err := validateWifiAp("760K", strings.Repeat("a", 64)); err == nil {
+		t.Fatal("超过 63 位的密码必须拒绝")
+	}
+}
+
 func TestWifiApWriteScript(t *testing.T) {
 	got := wifiApWriteScript(wifiApPath, wifiApFile{
 		ssid: "codroidRobot", password: "codroid123", channel: 149, band: band5G,

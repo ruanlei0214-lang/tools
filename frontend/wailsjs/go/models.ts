@@ -300,16 +300,18 @@ export namespace netcfg {
 	}
 	export class WifiAp {
 	    ssid: string;
+	    password: string;
 	    channel: number;
 	    band: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new WifiAp(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ssid = source["ssid"];
+	        this.password = source["password"];
 	        this.channel = source["channel"];
 	        this.band = source["band"];
 	    }

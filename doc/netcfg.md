@@ -1,6 +1,6 @@
 # 网络配置（netcfg）
 
-当前版本 **V1.0.19**，声明在 `frontend/src/modules/netcfg/module.ts`。
+当前版本 **V1.0.20**，声明在 `frontend/src/modules/netcfg/module.ts`。
 
 ## 做什么
 
@@ -19,10 +19,10 @@
 
 页面收成三块：**设备 → 网口 → 改地址**。地址在顶栏，本页不再重复。
 
-1. **设备**：上一行是刷新、一键恢复和状态；连上之后出现「WiFi 设置」区：SSID、频段、
-   信道、应用并重启。没刷新过不摆后面这些，免误点。
-   「应用并重启」把频段（`wifiAp` 第 4 行）和信道（第 3 行）写进配置，然后后台整段
-   重启 WiFi：先把 `wlan0` 从 `br0` 摘掉，然后在 `/opt` 下重跑 `setWifi.sh`。
+1. **设备**：上一行是刷新、一键恢复和状态；连上之后出现「WiFi 设置」区：WiFi 名、
+   密码（密码框，输入不可见）、频段、信道、应用并重启。没刷新过不摆后面这些，免误点。
+   「应用并重启」把 WiFi 名、密码（`wifiAp` 第 1、2 行）、频段（第 4 行）和信道
+   （第 3 行）写进配置，然后后台整段重启 WiFi。
    `wifiAp` 固定在 `/opt/wifiAp`（`setWifi.sh` 在 `/opt` 下按相对路径读它），不去其他
    目录找；文件不存在时自动按出厂默认值创建（SSID `760K`、密码 `codroid123`、5G 信道 149）。
    整段重启丢进 `nohup` 立刻返回——SSH 走 br0，前台跑会被桥抖动杀掉。
@@ -212,8 +212,8 @@ WiFi 配置文件 `wifiAp` 固定在设备 `/opt/wifiAp`，不可配置；不存
 | `TestConnection` | `(Device) => Promise<void>` | 验证连接是否可用，不返回设备信息 |
 | `ListPorts` | `(Device) => Promise<Port[]>` | 读取网口，按机柜面板口名返回，恒为五个，标出哪些可改 |
 | `ApplyConfig` | `(Device, Config) => Promise<void>` | 下发新地址 |
-| `GetWifiAp` | `(Device) => Promise<WifiAp>` | 读 wifiAp 的 SSID、信道与频段，不返回密码 |
-| `ApplyWifi` | `(Device, string, number) => Promise<string>` | 写频段与信道（信道 0 表示保持现状，与新频段不符时拉回默认值），然后 `nohup` 后台整段重启 WiFi，立刻返回 |
+| `GetWifiAp` | `(Device) => Promise<WifiAp>` | 读 wifiAp 的 WiFi 名、密码、信道与频段，预填进编辑框 |
+| `ApplyWifi` | `(Device, string, string, string, number) => Promise<string>` | 写 WiFi 名、密码、频段与信道（信道 0 表示保持现状，与新频段不符时拉回默认值），然后 `nohup` 后台整段重启 WiFi，立刻返回 |
 | `RestoreNetwork` | `(Device) => Promise<void>` | 删除 `restoreFile`，并替换 `/opt/setBridge.sh`、`/opt/setWifi.sh` 为随包出厂版本 |
 | `Defaults` | `() => Promise<Settings>` | 返回页面默认值；地址和 SSH 凭据优先用共享配置 `toolbox-config.json` |
 

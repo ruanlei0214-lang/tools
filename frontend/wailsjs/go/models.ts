@@ -174,7 +174,8 @@ export namespace board {
 	    }
 	}
 	export class UploadResult {
-	    remotePath: string;
+	    count: number;
+	    conflicts: string[];
 	    needsConfirm: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -183,7 +184,8 @@ export namespace board {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.remotePath = source["remotePath"];
+	        this.count = source["count"];
+	        this.conflicts = source["conflicts"];
 	        this.needsConfirm = source["needsConfirm"];
 	    }
 	}
@@ -261,6 +263,7 @@ export namespace netcfg {
 	    restoreFile: string;
 	    connectTimeoutSeconds: number;
 	    persistIface: string;
+	    wifiApFile: string;
 	    warning: string;
 	
 	    static createFrom(source: any = {}) {
@@ -275,6 +278,7 @@ export namespace netcfg {
 	        this.restoreFile = source["restoreFile"];
 	        this.connectTimeoutSeconds = source["connectTimeoutSeconds"];
 	        this.persistIface = source["persistIface"];
+	        this.wifiApFile = source["wifiApFile"];
 	        this.warning = source["warning"];
 	    }
 	
@@ -295,6 +299,22 @@ export namespace netcfg {
 		    }
 		    return a;
 		}
+	}
+	export class WifiAp {
+	    ssid: string;
+	    channel: number;
+	    band: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WifiAp(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ssid = source["ssid"];
+	        this.channel = source["channel"];
+	        this.band = source["band"];
+	    }
 	}
 
 }

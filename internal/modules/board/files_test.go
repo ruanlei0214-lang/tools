@@ -169,7 +169,7 @@ func TestUploadFailureLeavesRemoteUntouched(t *testing.T) {
 	}
 }
 
-// 目录不能下载，而且拒绝之后本地不许留下半个文件。
+// 目录不能走单文件下载，而且拒绝之后本地不许留下半个文件。
 func TestDownloadRejectsDirectory(t *testing.T) {
 	c := testSFTP(t)
 	dir := t.TempDir()
@@ -182,13 +182,54 @@ func TestDownloadRejectsDirectory(t *testing.T) {
 	local := filepath.Join(dir, "out")
 	err := download(c, remotePath(sub), local)
 	if err == nil {
-		t.Fatal("下载目录居然成功了")
+		t.Fatal("单文件下载目录居然成功了")
 	}
 	if !strings.Contains(err.Error(), "目录") {
 		t.Errorf("错误里该说清是目录：%v", err)
 	}
 	if _, err := os.Stat(local + ".part"); !os.IsNotExist(err) {
 		t.Errorf("本地留下了 .part：%v", err)
+	}
+}
+
+// 整棵目录上传再下载，结构和内容都要对上，空子目录也要建出来。
+func TestUploadDownloadTreeRoundTrip(t *testing.T) {
+	c := testSFTP(t)
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "pack")
+	if err := os.MkdirAll(filepath.Join(src, "sub", "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("aaa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "sub", "b.bin"), []byte{0, 1, 2}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	remote := remotePath(dir, "uploaded")
+	if err := uploadTree(c, src, remote); err != nil {
+		t.Fatalf("上传目录失败：%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "uploaded", "sub", "empty")); err != nil {
+		t.Fatalf("空子目录没建出来：%v", err)
+	}
+
+	back := filepath.Join(dir, "back")
+	if err := downloadTree(c, remote, back); err != nil {
+		t.Fatalf("下载目录失败：%v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(back, "a.txt"))
+	if err != nil || string(got) != "aaa" {
+		t.Fatalf("a.txt=%q err=%v", got, err)
+	}
+	got, err = os.ReadFile(filepath.Join(back, "sub", "b.bin"))
+	if err != nil || !bytes.Equal(got, []byte{0, 1, 2}) {
+		t.Fatalf("b.bin=%v err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(back, "sub", "empty")); err != nil {
+		t.Fatalf("下载后空子目录丢了：%v", err)
 	}
 }
 

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { WindowSetAlwaysOnTop } from '../wailsjs/runtime/runtime'
 import { modules } from './shell/registry'
 import { APP_NAME, APP_VERSION } from './shell/version'
-import { conn, connectAll, disconnectAll, loadShared } from './shell/connection'
+import { conn, connectAll, disconnectAll, loadShared, persistHost } from './shell/connection'
 
 const activeId = ref(modules[0]?.id ?? '')
 const active = computed(() => modules.find((m) => m.id === activeId.value))
@@ -35,6 +35,24 @@ function toggleAlwaysOnTop() {
 
 function applyAlwaysOnTop(on: boolean) {
   WindowSetAlwaysOnTop(on)
+}
+
+async function commitHost() {
+  const next = conn.host.trim()
+  if (!next) {
+    connMsg.value = { kind: 'err', text: '请填写设备地址' }
+    try {
+      await loadShared()
+    } catch {
+      conn.host = ''
+    }
+    return
+  }
+  try {
+    await persistHost(next)
+  } catch (e) {
+    connMsg.value = { kind: 'err', text: `写入地址失败：${String(e)}` }
+  }
 }
 
 function toggleConnect() {
@@ -87,12 +105,17 @@ function toggleConnect() {
         >
           <span class="dot" />WS
         </span>
-        <span
+        <input
+          v-model="conn.host"
           class="conn-host"
-          :title="conn.host ? `改地址和凭据：exe 同目录 toolbox-config.json` : '在 exe 同目录的 toolbox-config.json 里填 host / user / password'"
-        >
-          {{ conn.host || '未配置' }}
-        </span>
+          aria-label="设备地址"
+          placeholder="设备 IP"
+          spellcheck="false"
+          :disabled="!!conn.busy"
+          title="改完回车或点别处即写入 toolbox-config.json，重新连接后生效"
+          @change="commitHost"
+          @keyup.enter="commitHost"
+        />
         <button
           class="primary conn-toggle"
           :disabled="!!conn.busy || (!anyConnected && (!conn.host.trim() || !conn.user.trim()))"
@@ -256,18 +279,29 @@ function toggleConnect() {
 }
 
 .conn-host {
-  flex: 0 1 9rem;
-  min-width: 0;
+  flex: 0 1 10rem;
+  min-width: 7rem;
+  width: 10rem;
   padding: 3px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: var(--bg);
+  background: #fff;
   overflow: hidden;
   font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-  user-select: text;
+}
+
+.conn-host:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.conn-host:disabled {
+  background: var(--bg);
+  color: var(--text-dim);
 }
 
 .conn-toggle {

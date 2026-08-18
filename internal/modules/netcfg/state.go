@@ -17,12 +17,9 @@ import (
 // 地址没变时也照写：省掉那次写要先把旧值读回来解析一遍，而读加解析比写 30 字节更贵。
 // 只动 Host 这一个字段，凭据在 toolbox-config.json 里，这里不能顺手抹掉。
 func rememberHost(host string) {
-	if host == "" {
-		return
-	}
-	s := module.LoadShared()
-	s.Host = host
-	if err := module.SaveShared(s); err != nil {
-		log.Printf("netcfg: 写入共享配置失败：%v", err)
+	if err := module.SaveHost(host); err != nil {
+		if host != "" {
+			log.Printf("netcfg: 写入共享配置失败：%v", err)
+		}
 	}
 }

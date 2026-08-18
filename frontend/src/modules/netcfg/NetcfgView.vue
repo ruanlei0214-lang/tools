@@ -2,7 +2,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
   ApplyConfig,
+  ApplyWifi,
   Defaults,
+  GetWifiAp,
   ListPorts,
   RestoreNetwork,
   TestConnection,
@@ -15,6 +17,11 @@ import { loadShared } from '../../shell/connection'
 const device = reactive<netcfg.Device>({ host: '', port: 0, user: '', password: '' })
 const form = reactive({ ip: '', mask: '', gateway: '' })
 const defaults = reactive({ mask: '', restoreFile: '', persistIface: '' })
+const wifiSSID = ref('')
+const wifiChannel = ref('')
+// wifiBand 是设备当前频段（只用于展示），bandChoice 是下拉框里要切到的频段。
+const wifiBand = ref<'5G' | '2.4G'>('5G')
+const bandChoice = ref<'5G' | '2.4G'>('5G')
 const configWarning = ref('')
 
 onMounted(async () => {
@@ -41,6 +48,8 @@ const busy = ref('')
 const confirming = ref(false)
 const rebootNotice = ref(false)
 const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+// 一键恢复、重启 WiFi 都要先能 SSH 上设备。没连过就摆着，误点要么改错机，要么空等超时。
+const restorable = ref(false)
 
 // 配置告警与操作结果共用一条状态槽：告警优先，操作只清 banner，冲不掉告警。
 const status = computed(() => {
@@ -54,6 +63,20 @@ const current = computed(() => ports.value.find((p) => p.name === selected.value
 const editable = computed(() => ports.value.filter((p) => p.editable))
 
 const canApply = computed(() => current.value !== null && form.ip !== '' && form.mask !== '')
+
+const channels5G = [36, 40, 44, 48, 149, 153, 157, 161, 165]
+
+const channelHint = computed(() =>
+  bandChoice.value === '2.4G' ? '2.4G 可用信道：1-13' : '5G 可用信道：36 / 40 / 44 / 48 / 149 / 153 / 157 / 161 / 165',
+)
+
+// 信道留空表示保持现状；填了就必须落在所选频段的合法范围里。
+const canApplyWifi = computed(() => {
+  if (wifiChannel.value === '') return true
+  const n = Number(wifiChannel.value)
+  if (!Number.isInteger(n)) return false
+  return bandChoice.value === '2.4G' ? n >= 1 && n <= 13 : channels5G.includes(n)
+})
 
 // 只有持久化网口改完能留住，其他网口重启就没了。这两种结果差别太大，
 // 不能用同一句话糊过去。比的是系统网口名，面板名和它对不上。
@@ -92,20 +115,37 @@ async function refreshDevice() {
 // 连得上就顺手把网口读回来：点「刷新网络配置」的人下一步一定是要看网口，中间再让他点一次
 // 没有意义。读网口失败时错误会盖掉「连接成功」，这是对的——连上了但读不到网口，
 // 能做的事和没连上一样。
+function resetView() {
+  ports.value = []
+  selected.value = ''
+  confirming.value = false
+  restorable.value = false
+  wifiSSID.value = ''
+  wifiChannel.value = ''
+  wifiBand.value = '5G'
+  bandChoice.value = '5G'
+}
+
 function test() {
   return call('test', async () => {
-    // 先清掉上一次连接读到的网口。连不上（超时、认证失败、地址不可达都算）却还留着旧
-    // 设备的网口列表，用户会当成当前设备的状态，照着它改地址就改到别处去了。放在开头
-    // 而不是 catch 里：连接期间状态本来就是未知的，空列表比一份过期的列表诚实。
-    ports.value = []
-    selected.value = ''
-    confirming.value = false
+    // 先清掉上一次连接读到的网口。连不上却还留着旧设备的列表，会按错机改地址。
+    resetView()
 
     await refreshDevice()
     await TestConnection(device)
     ports.value = await ListPorts(device)
+    restorable.value = true
+    try {
+      const wifi = await GetWifiAp(device)
+      wifiSSID.value = wifi.ssid
+      wifiChannel.value = wifi.channel > 0 ? String(wifi.channel) : ''
+      wifiBand.value = wifi.band === '2.4G' ? '2.4G' : '5G'
+      bandChoice.value = wifiBand.value
+    } catch {
+      // 网口已经读到了，WiFi 读失败不挡改地址。
+    }
 
-    // 面板口恒为五个，所以"有没有东西可配"要看有没有能改的口，而不是读到了几行。
+    // 面板口恒为五个（wlan 另算），所以"有没有东西可配"要看有没有能改的口，而不是读到了几行。
     if (editable.value.length === 0) {
       banner.value = { kind: 'info', text: '连接成功，但这台设备上没有可以修改地址的网口。' }
       return
@@ -133,9 +173,7 @@ function apply() {
   const iface = current.value?.iface ?? ''
   return call('apply', async () => {
     await ApplyConfig(device, { iface, ...form })
-    confirming.value = false
-    ports.value = []
-    selected.value = ''
+    resetView()
     device.host = target
     // 后端已把新地址写进共享配置，顶栏的地址跟着换过去。
     await loadShared()
@@ -148,13 +186,23 @@ function apply() {
   })
 }
 
+function applyWifi() {
+  return call('wifi', async () => {
+    await refreshDevice()
+    const ch = wifiChannel.value === '' ? 0 : Number(wifiChannel.value)
+    const out = await ApplyWifi(device, bandChoice.value, ch)
+    wifiBand.value = bandChoice.value
+    banner.value = { kind: 'ok', text: out || 'WiFi 正在后台重启' }
+  })
+}
+
 function restore() {
   return call('restore', async () => {
     await refreshDevice()
     await RestoreNetwork(device)
     banner.value = {
       kind: 'ok',
-      text: `已删除 ${defaults.restoreFile}。改动要等机器人控制器重启后才会生效。`,
+      text: `已删除 ${defaults.restoreFile}，并把 /opt/setBridge.sh、/opt/setWifi.sh 替换为出厂版本。改动要等机器人控制器重启后才会生效。`,
     }
     rebootNotice.value = true
   })
@@ -163,38 +211,81 @@ function restore() {
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <p class="page-sub">按机柜面板网口改地址：先刷新网络配置，再点可改的网口，最后下发。</p>
-    </header>
-
-    <!-- ① 操作行：地址在顶栏，这里不再重复。刷新就是连一次把网口读回来。 -->
-    <section class="panel connect-panel">
-      <div class="connect-row">
-        <button class="primary connect-btn" :disabled="busy !== ''" @click="test">
+    <section class="panel">
+      <div class="block-head">
+        <div class="step-label">设备</div>
+        <p class="step-hint">先刷新，再改网口或 WiFi。地址在顶栏。</p>
+      </div>
+      <div class="toolbar">
+        <button class="primary" :disabled="busy !== ''" @click="test">
           {{ busy === 'test' ? '刷新中…' : '刷新网络配置' }}
         </button>
-        <button class="danger connect-btn restore-btn" :disabled="busy !== ''" @click="restore">
+        <button
+          v-if="restorable"
+          class="danger"
+          :disabled="busy !== ''"
+          title="删除地址持久化文件，并替换 /opt/setBridge.sh、/opt/setWifi.sh 为出厂版本"
+          @click="restore"
+        >
           {{ busy === 'restore' ? '恢复中…' : '一键恢复网络' }}
         </button>
-        <!-- 配置告警与操作结果共用这一格。下发和恢复那两条提示比较长，
-             这里截断显示，完整内容挂在 title 上，也可以直接选中复制。 -->
         <div class="status" :class="status?.kind" :title="status?.text" aria-live="polite">
-          {{ status?.text ?? '' }}
+          {{ status?.text ?? '尚未刷新' }}
         </div>
+      </div>
+
+      <div v-if="restorable" class="wifi-block">
+        <div class="wifi-head">
+          <div class="wifi-title">WiFi 设置</div>
+          <span v-if="wifiSSID" class="wifi-ssid" :title="wifiSSID">{{ wifiSSID }}</span>
+        </div>
+        <div class="toolbar">
+          <div class="field band-field">
+            <label for="band">频段（当前 {{ wifiBand }}）</label>
+            <select id="band" v-model="bandChoice">
+              <option value="5G">5G</option>
+              <option value="2.4G">2.4G</option>
+            </select>
+          </div>
+          <div class="field chan-field">
+            <label for="chan">信道</label>
+            <input
+              id="chan"
+              v-model.trim="wifiChannel"
+              inputmode="numeric"
+              :placeholder="bandChoice === '2.4G' ? '1-13' : '149'"
+              :title="channelHint"
+            />
+          </div>
+          <button
+            class="primary"
+            :disabled="!canApplyWifi || busy !== ''"
+            title="写入频段/信道并后台重启 WiFi，约 10 秒；信道留空表示保持现状"
+            @click="applyWifi"
+          >
+            {{ busy === 'wifi' ? '应用中…' : '应用并重启' }}
+          </button>
+        </div>
+        <p class="chan-hint">{{ channelHint }}</p>
       </div>
     </section>
 
-    <!-- ② 选口：五个面板口竖排成列表，IP 突出；可改的才像能点，只读的压暗。 -->
     <section v-if="ports.length" class="panel">
-      <div class="step-head">
-        <div class="step-label">1 · 选择网口</div>
+      <div class="block-head">
+        <div class="step-label">网口</div>
         <p v-if="editable.length" class="step-hint">
-          可改：{{ editable.map((p) => p.name).join('、') }} · 其余只读
+          点可改的口改地址。可改：{{ editable.map((p) => p.name).join('、') }}
         </p>
         <p v-else class="step-hint">这台设备上没有可以在这里改地址的网口</p>
       </div>
 
       <div class="port-list">
+        <div class="port-row port-head">
+          <span>口名</span>
+          <span>IP</span>
+          <span>掩码</span>
+          <span>网关</span>
+        </div>
         <button
           v-for="p in ports"
           :key="p.name"
@@ -209,33 +300,21 @@ function restore() {
           :disabled="!p.editable"
           @click="select(p)"
         >
-          <div class="port-name-cell">
-            <span class="port-name">{{ p.name }}</span>
-            <span class="port-badge">
-              <template v-if="p.editable">可改</template>
-              <template v-else-if="p.iface">只读</template>
-              <template v-else>空</template>
-            </span>
-          </div>
-
-          <span v-if="p.iface" class="port-status" :class="{ up: p.up }">
-            {{ p.up ? 'UP' : 'DOWN' }}
-          </span>
-          <span v-else class="port-status muted">—</span>
-
+          <span class="port-name">{{ p.name }}</span>
           <div class="port-ip">{{ p.ip || '—' }}</div>
           <div class="port-mask">{{ p.iface ? p.mask || '—' : '—' }}</div>
-          <div class="port-gw">{{ p.iface ? p.gateway || '—' : '不由本工具管理' }}</div>
+          <div class="port-gw">{{ p.iface ? p.gateway || '—' : '—' }}</div>
         </button>
       </div>
     </section>
 
-    <!-- ③ 改地址：选中后才出现，标题直接点名网口。 -->
     <section v-if="selected" class="panel edit-panel">
-      <div class="step-label">2 · 修改 {{ selected }} 的地址</div>
-      <p v-if="siblings.length" class="sibling-note">
-        {{ siblings.join('、') }} 是同一网口，改一个另外几个一起变。
-      </p>
+      <div class="block-head">
+        <div class="step-label">修改 {{ selected }}</div>
+        <p v-if="siblings.length" class="step-hint">
+          {{ siblings.join('、') }} 是同一网口，改一个另外几个一起变。
+        </p>
+      </div>
 
       <div class="field-row">
         <div class="field">
@@ -284,43 +363,27 @@ function restore() {
   max-width: 880px;
 }
 
-.page-head {
-  margin-bottom: 12px;
-}
-
-.page-sub {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-dim);
-  line-height: 1.4;
-}
-
 .panel {
-  margin-bottom: 10px;
-  padding: 12px 14px;
+  margin-bottom: 12px;
+  padding: 14px 16px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
-.step-label {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: 0.02em;
-}
-
-.step-head {
+.block-head {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 4px 12px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
-.step-head .step-label {
+.step-label {
   margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .step-hint {
@@ -329,44 +392,84 @@ function restore() {
   color: var(--text-dim);
 }
 
-/* 连接区压到一行，所以内边距比别的 panel 小一圈。 */
-.connect-panel {
-  padding: 7px 10px;
-}
-
-/* 标题、地址、按钮、状态挤在一行，不折行：折了就等于又占两行，
-   压到一行的意义就没了。地址框可以被压窄，状态吃掉剩下的宽度。 */
-.connect-row {
+.toolbar {
   display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 10px;
 }
 
-.connect-btn {
-  flex-shrink: 0;
-  height: 30px;
+.toolbar > button {
+  flex: 0 0 auto;
+  height: 32px;
   padding: 0 12px;
   font-size: 12px;
   font-weight: 600;
 }
 
-/* 现场重点工具：字重更重，一眼能找到。 */
-.restore-btn {
-  min-width: 120px;
-  letter-spacing: 0.02em;
+.wifi-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
-/* 竖排列表：行距压紧，口名和标记同一行。 */
+.wifi-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+
+.wifi-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.band-field {
+  flex: 0 0 150px;
+}
+
+.chan-field {
+  flex: 0 0 88px;
+}
+
+.chan-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.wifi-ssid {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 竖排列表：行距压紧，四列对齐表头。 */
 .port-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
+.port-head {
+  padding: 0 10px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .port-row {
   display: grid;
-  grid-template-columns: 92px 52px minmax(110px, 1.2fr) minmax(100px, 1fr) minmax(110px, 1.2fr);
+  grid-template-columns: 72px minmax(110px, 1.2fr) minmax(100px, 1fr) minmax(110px, 1.2fr);
   align-items: center;
   gap: 6px 12px;
   width: 100%;
@@ -405,14 +508,6 @@ function restore() {
   cursor: default;
 }
 
-.port-name-cell {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
 .port-name {
   font-size: 13px;
   font-weight: 700;
@@ -422,42 +517,6 @@ function restore() {
 .port-row.readonly .port-name,
 .port-row.blank .port-name {
   color: var(--text-dim);
-}
-
-.port-badge {
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.port-row.editable .port-badge,
-.port-row.selected .port-badge {
-  color: var(--accent);
-}
-
-.port-row.readonly .port-badge,
-.port-row.blank .port-badge {
-  color: var(--text-dim);
-  font-weight: 500;
-}
-
-.port-status {
-  justify-self: start;
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 11px;
-  line-height: 18px;
-  background: var(--bg);
-  color: var(--text-dim);
-}
-
-.port-status.up {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.port-status.muted {
-  background: transparent;
-  padding: 0;
 }
 
 .port-ip {
@@ -488,12 +547,6 @@ function restore() {
   background: #f8faff;
 }
 
-.sibling-note {
-  margin: -2px 0 10px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
 .actions {
   margin-top: 10px;
   gap: 8px;
@@ -502,14 +555,14 @@ function restore() {
 /* 状态占掉连接行剩下的宽度。这一格的高度不能跟着消息变，
    否则下面的网口列表会上下跳，所以长消息截断、完整内容挂 title。 */
 .status {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 26px;
-  padding: 0 8px;
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  height: 32px;
+  padding: 0 10px;
   border-radius: 5px;
   overflow: hidden;
   font-size: 12px;
-  line-height: 26px;
+  line-height: 32px;
   text-overflow: ellipsis;
   white-space: nowrap;
   user-select: text;
@@ -561,22 +614,20 @@ function restore() {
 }
 
 @media (max-width: 720px) {
+  .port-head {
+    display: none;
+  }
+
   .port-row {
-    grid-template-columns: 72px 48px 1fr;
+    grid-template-columns: 56px 1fr;
     grid-template-areas:
-      "name status ip"
-      "name status meta";
+      "name ip"
+      "name meta";
     padding: 6px 8px;
   }
 
-  .port-name-cell {
+  .port-name {
     grid-area: name;
-    flex-direction: column;
-    gap: 1px;
-  }
-
-  .port-status {
-    grid-area: status;
   }
 
   .port-ip {
@@ -590,11 +641,6 @@ function restore() {
 
   .port-mask {
     display: none;
-  }
-
-  /* 窄到这一步就允许连接区折行，否则按钮会被挤到看不见。 */
-  .connect-row {
-    flex-wrap: wrap;
   }
 
   .status {

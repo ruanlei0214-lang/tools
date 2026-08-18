@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -233,4 +234,85 @@ func download(c *sftp.Client, remotePath, localPath string) error {
 // 用 filepath.Join 会在 Windows 上拼出反斜杠，设备不认。
 func remoteJoin(dir, name string) string {
 	return path.Join(strings.TrimSpace(dir), name)
+}
+
+// 一次拖入或点上传可能带进整棵目录。5000 个文件已经远超现场固件包的体量，
+// 再大多半是拖错了盘符，及时停比传一半再报错干净。
+const maxTransferItems = 5000
+
+// uploadTree 把本地文件或整棵目录传到远端。目录会在设备上按同名建出来再往里填。
+func uploadTree(c *sftp.Client, local, remote string) error {
+	lst, err := os.Stat(local)
+	if err != nil {
+		return fmt.Errorf("打开本地路径失败: %w", err)
+	}
+	rst, rerr := c.Stat(remote)
+	exists := rerr == nil
+
+	if lst.IsDir() {
+		if exists && !rst.IsDir() {
+			return fmt.Errorf("%s 在设备上已是文件，不能用文件夹覆盖", remote)
+		}
+		if err := c.MkdirAll(remote); err != nil {
+			return fmt.Errorf("在设备上创建目录 %s 失败: %w", remote, err)
+		}
+		ents, err := os.ReadDir(local)
+		if err != nil {
+			return fmt.Errorf("读取本地目录 %s 失败: %w", local, err)
+		}
+		for _, e := range ents {
+			if err := uploadTree(c, filepath.Join(local, e.Name()), remoteJoin(remote, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if exists && rst.IsDir() {
+		return fmt.Errorf("%s 在设备上已是目录，不能用文件覆盖", remote)
+	}
+	return upload(c, local, remote)
+}
+
+// downloadTree 把远端文件或整棵目录取到本地。目录会按同名建出来再往里填。
+func downloadTree(c *sftp.Client, remote, local string) error {
+	st, err := c.Stat(remote)
+	if err != nil {
+		return fmt.Errorf("读取 %s 的信息失败: %w", remote, err)
+	}
+	if st.IsDir() {
+		if err := os.MkdirAll(local, 0o755); err != nil {
+			return fmt.Errorf("创建本地目录失败: %w", err)
+		}
+		ents, err := c.ReadDir(remote)
+		if err != nil {
+			return fmt.Errorf("列出 %s 失败: %w", remote, err)
+		}
+		for _, e := range ents {
+			if err := downloadTree(c, remoteJoin(remote, e.Name()), filepath.Join(local, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		return fmt.Errorf("创建本地目录失败: %w", err)
+	}
+	return download(c, remote, local)
+}
+
+// countLocalItems 统计这次上传会碰到多少个文件/目录，用来挡误拖整盘。
+func countLocalItems(root string) (int, error) {
+	n := 0
+	err := filepath.WalkDir(root, func(_ string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		n++
+		if n > maxTransferItems {
+			return fmt.Errorf("超过 %d 项，像是拖错了位置", maxTransferItems)
+		}
+		return nil
+	})
+	return n, err
 }

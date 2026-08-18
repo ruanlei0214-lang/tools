@@ -5,6 +5,6 @@ export default {
   id: 'board',
   name: '终端',
   description: 'SSH 终端、自定义指令与文件传输',
-  version: 'V1.2.0',
+  version: 'V1.2.3',
   view: BoardView,
 } satisfies ModuleManifest

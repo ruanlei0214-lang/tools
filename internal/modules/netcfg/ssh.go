@@ -109,3 +109,22 @@ func run(c *ssh.Client, cmd string) (string, error) {
 func quote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// writeRemoteFile 通过 stdin 把内容写进设备文件。内容先归一成 LF：
+// Windows 签出的脚本带 CRLF 时，/bin/sh\r 会让设备报 "not found"。
+func writeRemoteFile(c *ssh.Client, path string, content []byte) error {
+	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
+
+	sess, err := c.NewSession()
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+
+	sess.Stdin = bytes.NewReader(content)
+	cmd := fmt.Sprintf("cat > %s && chmod +x %s", quote(path), quote(path))
+	if out, err := sess.CombinedOutput(cmd); err != nil {
+		return fmt.Errorf("设备执行命令失败: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}

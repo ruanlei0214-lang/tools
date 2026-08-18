@@ -16,6 +16,15 @@ import (
 //go:embed config/config.json
 var configJSON []byte
 
+// 一键恢复时随包替换到设备 /opt 的启动脚本。设备上那份可能被现场改坏，
+// 恢复网络要连脚本一起回到出厂状态。
+//
+//go:embed config/setBridge.sh
+var setBridgeScript []byte
+
+//go:embed config/setWifi.sh
+var setWifiScript []byte
+
 // defaultConnectTimeout 是 connectTimeoutSeconds 省略时用的值，也是兜底配置里的值。
 // 两处共用一个常量，避免出现 0 —— ssh.ClientConfig.Timeout 为 0 表示永不超时，
 // 那会让界面卡在「连接中…」再也回不来。
@@ -40,6 +49,8 @@ type Settings struct {
 	// 留空表示任何网口都不写文件：validate 不接受空网口名，所以空值永远匹配不上，
 	// 不需要额外的开关判断。
 	PersistIface string `json:"persistIface"`
+	// WifiApFile 是 WiFi 名称/密码/信道文件，第 3 行是信道。必须是绝对路径。
+	WifiApFile string `json:"wifiApFile"`
 	// Warning 非空表示 config.json 不可用，当前这些值来自内置兜底。
 	Warning string `json:"warning"`
 }
@@ -53,6 +64,7 @@ func builtinSettings() Settings {
 		RestoreFile:           "/opt/runtime/pi",
 		ConnectTimeoutSeconds: defaultConnectTimeout,
 		PersistIface:          "br0",
+		WifiApFile:            defaultWifiApFile,
 	}
 }
 
@@ -93,6 +105,12 @@ func parseSettings(raw []byte) (Settings, error) {
 	}
 	if !strings.HasPrefix(s.RestoreFile, "/") || strings.Trim(s.RestoreFile, "/") == "" {
 		return Settings{}, fmt.Errorf("restoreFile 必须是绝对路径，当前是 %q", s.RestoreFile)
+	}
+	if s.WifiApFile == "" {
+		s.WifiApFile = defaultWifiApFile
+	}
+	if !strings.HasPrefix(s.WifiApFile, "/") || strings.Trim(s.WifiApFile, "/") == "" {
+		return Settings{}, fmt.Errorf("wifiApFile 必须是绝对路径，当前是 %q", s.WifiApFile)
 	}
 
 	// 配置自带的 warning 字段没有意义，别让它伪装成加载失败。

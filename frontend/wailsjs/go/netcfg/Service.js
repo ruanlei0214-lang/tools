@@ -6,8 +6,16 @@ export function ApplyConfig(arg1, arg2) {
   return window['go']['netcfg']['Service']['ApplyConfig'](arg1, arg2);
 }
 
+export function ApplyWifi(arg1, arg2, arg3) {
+  return window['go']['netcfg']['Service']['ApplyWifi'](arg1, arg2, arg3);
+}
+
 export function Defaults() {
   return window['go']['netcfg']['Service']['Defaults']();
+}
+
+export function GetWifiAp(arg1) {
+  return window['go']['netcfg']['Service']['GetWifiAp'](arg1);
 }
 
 export function ListPorts(arg1) {

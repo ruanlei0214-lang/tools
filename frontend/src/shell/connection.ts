@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { SaveHost } from '../../wailsjs/go/toolbox/Service'
 import {
   Config as boardConfig,
   Connect as boardConnect,
@@ -57,8 +58,25 @@ export async function loadShared() {
     conn.keyPath = cfg.device.keyPath || ''
     conn.sshPort = cfg.device.port || 22
   }
+  persistedHost = conn.host.trim()
   conn.loaded = true
   await refreshStatus()
+}
+
+// 上次已经落盘的地址。失焦时没改就别写，省一次磁盘。
+let persistedHost = ''
+
+// persistHost 把顶栏改过的地址写进 toolbox-config.json，只动 host。
+export async function persistHost(host: string): Promise<void> {
+  const next = host.trim()
+  if (!next) throw new Error('请填写设备地址')
+  if (next === persistedHost) {
+    conn.host = next
+    return
+  }
+  await SaveHost(next)
+  conn.host = next
+  persistedHost = next
 }
 
 // refreshStatus 对齐两条连接的真实状态。连接可能被设备单方面断掉（重启、
@@ -84,15 +102,24 @@ export async function refreshStatus() {
   }
 }
 
+// closing 是还没拆完的上一次断开。灯可以马上灭，但新的连接必须等旧连接收干净，
+// 否则 Disconnect 晚到一步会把刚建上的那条拆掉。
+let closing: Promise<void> | null = null
+
 // connectAll 一键建 SSH 和 WS 两条连接。两条互不等待：WS 连不上不该拖着
 // SSH 也连不上。成功不返回文案（状态灯够了），失败只报哪条没连上，
 // 详细原因留在状态点的悬停提示里。
+
 export async function connectAll(): Promise<{ kind: 'ok' | 'err'; text: string }> {
   conn.busy = 'connect'
   conn.sshConnected = false
   conn.wsConnected = false
   try {
-    // 先读一遍文件：现场改完 toolbox-config.json 点连接就能用，不用重启。
+    if (closing) await closing
+    // 顶栏可能刚改了地址还没失焦，先落盘再读，避免读回旧值把输入冲掉。
+    if (conn.host.trim()) {
+      await persistHost(conn.host)
+    }
     await loadShared()
     const device = {
       host: conn.host.trim(),
@@ -142,19 +169,24 @@ export async function connectAll(): Promise<{ kind: 'ok' | 'err'; text: string }
 }
 
 export async function disconnectAll(): Promise<void> {
-  conn.busy = 'disconnect'
-  try {
-    await Promise.allSettled([
-      hasBoard() ? boardDisconnect() : Promise.resolve(),
-      hasRemote() ? remoteDisconnect() : Promise.resolve(),
-    ])
-  } finally {
-    conn.sshConnected = false
-    conn.wsConnected = false
-    conn.sshAddr = ''
-    conn.wsAddr = ''
-    conn.sshError = ''
-    conn.wsError = ''
-    conn.busy = ''
-  }
+  // 灯和按钮立刻回到未连接。SFTP / 未完成的 IO 可能把后端 Close 拖住好几秒，
+  // 不能把整条顶栏冻在「断开中…」。
+  conn.sshConnected = false
+  conn.wsConnected = false
+  conn.sshAddr = ''
+  conn.wsAddr = ''
+  conn.sshError = ''
+  conn.wsError = ''
+  conn.busy = ''
+
+  const job = Promise.allSettled([
+    hasBoard() ? boardDisconnect() : Promise.resolve(),
+    hasRemote() ? remoteDisconnect() : Promise.resolve(),
+  ]).then(() => {})
+  const tracked = (closing ?? Promise.resolve())
+    .then(() => job)
+    .finally(() => {
+      if (closing === tracked) closing = null
+    })
+  closing = tracked
 }

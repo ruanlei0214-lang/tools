@@ -59,3 +59,4 @@ func TestPersistIfaceMatching(t *testing.T) {
 		t.Error("空网口名必须被 validate 拒绝，否则空 persistIface 会意外触发写文件")
 	}
 }
+

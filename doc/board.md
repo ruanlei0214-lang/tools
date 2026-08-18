@@ -1,6 +1,6 @@
 # 终端（board）
 
-当前版本 **V1.2.0**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
+当前版本 **V1.2.3**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
 
 ## 做什么
 
@@ -16,14 +16,16 @@
 ## 界面操作
 
 1. **连接区在顶栏，不在本页**。顶栏显示共享地址和 SSH / WS 两个状态点，一个「连接」
-   按钮同时建立两条连接；地址、用户名、密码、私钥在 exe 同目录的
-   `toolbox-config.json` 里改，全系列工具共用这一份。端口仍用配置默认值（22）。选了密钥就先走公钥登录，
-   密码可兼作密钥口令，没有密钥时仍用密码（空密码也可以）。程序不会自动连接。
+   按钮同时建立两条连接。地址在顶栏可直接改，回车或点别处即写入 exe 同目录的
+   `toolbox-config.json`（只改 host，用户名和密码不动）；用户名、密码、私钥仍在那份文件里改。
+   全系列工具共用这一份。端口仍用配置默认值（22）。选了密钥就先走公钥登录，
+   密码可兼作密钥口令，没有密钥时仍用密码（空密码也可以）。程序不会自动连接。改完地址要重新点「连接」才生效。
 2. 本页左右分栏：**左边文件，右边终端**。指令按钮排在终端下方，小按钮，左键执行、右键编辑或删除。点「＋」展开名称和命令，保存即可。导入导出仍在工具行。
 3. 连接后自动打开 SSH 终端。点指令会把命令送进去。点进终端可直接打字；`Ctrl+C` 无选中时中断当前命令，有选中时复制。程序正在往终端打字时，划选文字会暂停刷屏，取消选中后再把攒着的输出贴上去，避免选区被冲掉。
-4. 终端最多分屏成四格：头部「⬌ 分屏」左右并排、「⬍ 分屏」上下并排，第三、四格自动成四宫格（三格时第三格独占底行）。格间分隔条可拖动调整比例。每格是设备上一个独立的 shell 会话；最后点过的格子是当前终端（蓝边），头部的 Ctrl+C、重开、清屏和指令按钮都作用在它身上。悬停格子右上角出现 ×，可关掉该格（最后一格不能关）。
-5. 文件区地址栏可手改，回车或「刷新」打开。上一级、上传、粘贴在同一行。列表下方留白，右键可粘贴、新建文件夹。单击选中，Ctrl+单击加选，Shift+单击连选；多选后右键的复制、剪切、删除对整批生效（重命名、编辑、下载仍是单个）。双击目录进去；双击图片（png/jpg/gif/webp/bmp/svg）在终端下方预览，终端与图片之间的横条可拖动，其它文件编辑文本（二进制或超过 48KB 会拒）。复制移动删除走终端里的 `cp` / `mv` / `rm` / `mkdir` / `cat`，重命名在文件名上就地改（回车确认、Esc 取消），不弹窗。上传下载仍走 SFTP。左右中间的竖条可拖动。
-5. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。
+4. 终端最多分屏成四格：头部「⬌ 分屏」左右并排、「⬍ 分屏」上下并排，第三、四格自动成四宫格（三格时第三格独占底行）。格间分隔条可拖动调整比例。每格是设备上一个独立的 shell 会话；最后点过的格子是当前终端（蓝边），头部的 Ctrl+C、重开、清屏和指令按钮都作用在它身上。悬停格子右上角出现 ×，可关掉该格（最后一格不能关）。在格子里滚轮放大缩小该格文字（9–28px，Ctrl++ / Ctrl+- / Ctrl+0 同样有效），按住 Shift 再滚或拖右边滚动条翻历史。
+5. 文件区地址栏可手改，回车或「刷新」打开。上一级、上传、下载、粘贴在同一行。点「上传」可选文件或文件夹；也可以把本机文件/文件夹直接拖进列表。单击选中，Ctrl+单击加选，Shift+单击连选；工具栏「下载」和右键下载对多选、文件夹都生效（单文件弹保存框，多项或文件夹选一个本地目录）。把选中的项拖到文件区外松手，同样会下载。列表下方留白，右键可粘贴、新建文件夹、上传。双击目录进去；双击图片（png/jpg/gif/webp/bmp/svg）在终端下方预览，终端与图片之间的横条可拖动，其它文件编辑文本（二进制或超过 48KB 会拒）。复制移动删除走终端里的 `cp` / `mv` / `rm` / `mkdir` / `cat`，重命名在文件名上就地改（回车确认、Esc 取消），不弹窗。上传下载走 SFTP，文件夹整棵递归。左右中间的竖条可拖动。
+6. 编辑文本文件会弹出一个模态框，保存后把内容写进终端（`cat > 文件`）并自动关闭。
+5. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。灯马上灭；后端先拆 SSH，SFTP/PTY 最多再等 200ms，不把顶栏冻在「断开中…」。
 
 ## 配置文件
 
@@ -98,16 +100,19 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
 | `ListDir` | `(dir: string) => Promise<Entry[]>` | 列远端目录 |
 | `ReadRemoteText` | `(path: string) => Promise<string>` | 读一份够小的文本，给编辑框用；二进制或超过 48KB 会拒 |
 | `ReadRemoteBytes` | `(path: string) => Promise<string>` | 读一份不超过 4MB 的文件（前端拿到的是 base64），给终端下方预览图片用 |
-| `PickLocalFile` | `() => Promise<string>` | 弹对话框选要上传的本地文件，取消返回空串 |
-| `PickSaveTarget` | `(name: string) => Promise<string>` | 弹对话框选下载落点，取消返回空串 |
-| `Upload` | `(local, remoteDir, overwrite) => Promise<UploadResult>` | 上传；`overwrite` 为假且同名文件已存在时只回报要确认 |
-| `Download` | `(remotePath, localPath) => Promise<void>` | 下载 |
+| `PickLocalPaths` | `() => Promise<string[]>` | 弹对话框多选要上传的本地文件，取消返回空数组 |
+| `PickLocalFolder` | `() => Promise<string>` | 弹对话框选要上传的本地文件夹，取消返回空串 |
+| `PickSaveTarget` | `(name: string) => Promise<string>` | 弹对话框选单个文件的下载落点，取消返回空串 |
+| `PickSaveDir` | `() => Promise<string>` | 弹对话框选批量/文件夹下载的本地目录，取消返回空串 |
+| `UploadMany` | `(locals, remoteDir, overwrite) => Promise<UploadResult>` | 上传文件或整棵文件夹；`overwrite` 为假且同名项已存在时只回报要确认 |
+| `Download` | `(remotePath, localPath) => Promise<void>` | 下载单个文件到指定路径 |
+| `DownloadMany` | `(remotes, localDir) => Promise<void>` | 下载一批文件或整棵文件夹到本地目录 |
 
 `Device`：`{ host, port, user, password, keyPath }`。`Status`：`{ connected, addr, error }`，
 `error` 是被动断开的原因。`Command`：`{ id, name, command }`。
 `CommandList`：`{ commands, path, warning }`，`path` 是现场清单的完整路径。
 `CommandFileResult`：`{ list, path, canceled }`。
-`Entry`：`{ name, size, isDir }`。`UploadResult`：`{ remotePath, needsConfirm }`。
+`Entry`：`{ name, size, isDir }`。`UploadResult`：`{ count, conflicts, needsConfirm }`。
 
 ## 实现要点
 
@@ -155,6 +160,7 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
 - **文件在左、终端在右，不再分标签**。中间竖条可拖。指令按钮压在终端下方——
   终端是这页的主角，按钮是顺手工具，不该一进门就占住顶部。
 - **Tab 补全的响铃和半截转义丢掉，半个 UTF-8 也不先解码**，否则 `cd /opt/` 后面会冒问号方块。
+  颜色码（SGR）留下并画成 span，文本本身先转义再进 `v-html`，设备回显进不了脚本。
 - **文件页只列当前这一层**。地址栏可编辑。列表下方留白专门给右键粘贴。
   复制、移动、粘贴、重命名、删除把命令写进同一条 SSH 终端；列目录、上传下载、
   打开编辑框读内容仍走 SFTP。文件路径不跟终端的 `cd` 走：从回显里解析 cd 只能猜到
@@ -162,13 +168,14 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
 
 ## 已知限制
 
-- 终端是文本回显区，不是完整的 xterm 模拟器。ANSI 颜色和光标控制码会被去掉，
-  普通 shell、脚本和交互式问答可用，但 `vi`、`top` 这类全屏程序显示会错乱。
+- 终端是文本回显区，不是完整的 xterm 模拟器。颜色、粗体、下划线（SGR，含 256 色和真彩）会按样式画出来，光标移动和清屏码仍丢掉。`ls --color`、`git`、报错着色能看，`vi`、`top` 这类全屏程序还是会乱。
 - 终端输入是一行文本；特殊键只单独提供了 `Ctrl+C`。
 - **传输没有进度也不能续传**。大文件只能等它自己结束，中途失败要重新来。
 - **上传不保留权限位**。传上去的脚本没有执行位，要的话用指令按钮跑一次 `chmod +x`。
-- **上传下载不递归**，也不能整个目录上传或下载。右键删除目录会在终端里跑 `rm -rf`，
-  复制目录跑 `cp -a`，这两条是递归的。
+- **从列表拖出不能直接落到资源管理器的某个文件夹里**（WebView 发不出系统的文件拖放）。
+  拖到文件区外松手会弹出保存位置，效果和点「下载」一样。拖入（本机 → 列表）是真路径，文件夹可用。
+- 一次上传超过 5000 个文件/目录会被拒绝，避免误拖整个盘符。
+- 右键删除目录会在终端里跑 `rm -rf`，复制目录跑 `cp -a`，这两条是递归的。
 - **依赖设备上有 `sftp-server`**。没有的话文件标签页整个不可用，连接时就会报出来。
 - **只拷 exe 文件不会带走现场清单**。出厂按钮编在产物里，现场改过的那份和 exe
   在同一目录，整夹拷走会一起带走。
@@ -190,6 +197,7 @@ frontend/src/modules/board/module.ts         模块清单
 frontend/src/modules/board/BoardView.vue     文件与终端的分栏外壳
 frontend/src/modules/board/CommandPanel.vue  指令按钮、编辑表单与终端分屏布局
 frontend/src/modules/board/TerminalPane.vue  单个终端格子：输出渲染、按键捕获、划词保持
+frontend/src/modules/board/terminalAnsi.ts   ANSI SGR 着色（16/256/真彩），其它转义丢掉
 frontend/src/modules/board/FilePanel.vue     远端资源管理器，右键操作走终端
 frontend/src/modules/board/ContextMenu.vue   指令按钮与文件列表共用的右键菜单
 ```

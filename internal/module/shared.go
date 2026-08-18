@@ -56,6 +56,18 @@ func LoadShared() Shared {
 	return s
 }
 
+// SaveHost 只改共享配置里的地址，用户名和密码原样留下。
+// 顶栏改 IP 走这条，避免把凭据冲成空。
+func SaveHost(host string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return errors.New("请填写设备地址")
+	}
+	s := LoadShared()
+	s.Host = host
+	return SaveShared(s)
+}
+
 // SaveShared 校验并整份写回。先写 .tmp 再改名，避免写一半挂掉留下半份 JSON。
 func SaveShared(s Shared) error {
 	s.Host = strings.TrimSpace(s.Host)

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -47,11 +48,12 @@ type Status struct {
 
 // UploadResult 是一次上传的结果。
 //
-// NeedsConfirm 为真时什么都没传：远端已有同名文件，等界面确认后带 overwrite 再调一次。
-// 用一个返回值而不是特殊错误字符串，是因为「要确认」不是失败，前端也不该去比对错误文本。
+// NeedsConfirm 为真时什么都没传：远端已有同名项，等界面确认后带 overwrite 再调一次。
+// Conflicts 是那些撞名的远端路径。Count 是实际上传的文件和目录个数。
 type UploadResult struct {
-	RemotePath   string `json:"remotePath"`
-	NeedsConfirm bool   `json:"needsConfirm"`
+	Count        int      `json:"count"`
+	Conflicts    []string `json:"conflicts"`
+	NeedsConfirm bool     `json:"needsConfirm"`
 }
 
 // Service 暴露给前端。它持有一条 SSH 长连接和挂在上面的 SFTP 客户端，
@@ -181,19 +183,38 @@ func (s *Service) watch(conn *ssh.Client) {
 }
 
 func (s *Service) closeLocked() {
-	for id, t := range s.terminals {
-		t.close()
-		delete(s.terminals, id)
-	}
-	if s.sftp != nil {
-		s.sftp.Close()
-		s.sftp = nil
-	}
-	if s.conn != nil {
-		s.conn.Close()
-		s.conn = nil
-	}
+	terms := s.terminals
+	sftp := s.sftp
+	conn := s.conn
+	s.terminals = nil
+	s.sftp = nil
+	s.conn = nil
 	s.addr = ""
+
+	// 先拆 TCP。SFTP / PTY 的 Close 会等对端回包，设备忙或半开着时能卡好几秒。
+	if conn != nil {
+		_ = conn.Close()
+	}
+	closeWithin(200*time.Millisecond, func() {
+		if sftp != nil {
+			_ = sftp.Close()
+		}
+		for _, t := range terms {
+			t.close()
+		}
+	})
+}
+
+func closeWithin(d time.Duration, fn func()) {
+	done := make(chan struct{})
+	go func() {
+		fn()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+	}
 }
 
 // ListCommands 读按钮清单。现场那份优先，没有就用出厂默认。不需要连接。
@@ -380,12 +401,27 @@ func (s *Service) ReadRemoteBytes(remotePath string) (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// PickLocalFile 弹系统对话框选一个要上传的本地文件，取消时返回空字符串。
-func (s *Service) PickLocalFile() (string, error) {
+// PickLocalPaths 弹系统对话框多选本地文件，取消时返回空切片。
+func (s *Service) PickLocalPaths() ([]string, error) {
+	if s.ctx == nil {
+		return nil, errors.New("界面还没准备好，稍后再试")
+	}
+	paths, err := runtime.OpenMultipleFilesDialog(s.ctx, runtime.OpenDialogOptions{Title: "选择要上传的文件"})
+	if err != nil {
+		return nil, err
+	}
+	if paths == nil {
+		return []string{}, nil
+	}
+	return paths, nil
+}
+
+// PickLocalFolder 弹系统对话框选一个要上传的本地文件夹，取消时返回空字符串。
+func (s *Service) PickLocalFolder() (string, error) {
 	if s.ctx == nil {
 		return "", errors.New("界面还没准备好，稍后再试")
 	}
-	return runtime.OpenFileDialog(s.ctx, runtime.OpenDialogOptions{Title: "选择要上传的文件"})
+	return runtime.OpenDirectoryDialog(s.ctx, runtime.OpenDialogOptions{Title: "选择要上传的文件夹"})
 }
 
 // PickSaveTarget 弹系统对话框选下载落点，取消时返回空字符串。
@@ -400,15 +436,21 @@ func (s *Service) PickSaveTarget(name string) (string, error) {
 	})
 }
 
-// Upload 把本地文件传到远端目录。
+// PickSaveDir 弹系统对话框选一个本地下载目录，取消时返回空字符串。
+func (s *Service) PickSaveDir() (string, error) {
+	if s.ctx == nil {
+		return "", errors.New("界面还没准备好，稍后再试")
+	}
+	return runtime.OpenDirectoryDialog(s.ctx, runtime.OpenDialogOptions{Title: "选择保存到的文件夹"})
+}
+
+// UploadMany 把一批本地文件或文件夹传到远端目录。文件夹按同名整棵传上去。
 //
-// overwrite 为 false 且远端已有同名文件时什么都不做，返回 NeedsConfirm 让界面去问。
-func (s *Service) Upload(localPath, remoteDir string, overwrite bool) (UploadResult, error) {
-	if localPath == "" {
+// overwrite 为 false 且远端已有同名项时什么都不做，返回 NeedsConfirm 让界面去问。
+func (s *Service) UploadMany(locals []string, remoteDir string, overwrite bool) (UploadResult, error) {
+	if len(locals) == 0 {
 		return UploadResult{}, errors.New("没有选择要上传的文件")
 	}
-	// 目标目录为空的话拼出来是个相对路径，文件会落到登录用户的家目录里——
-	// 那不是任何人想要的结果，而且事后很难找。
 	if strings.TrimSpace(remoteDir) == "" {
 		return UploadResult{}, errors.New("请先列出一个目录，再往里上传")
 	}
@@ -417,19 +459,41 @@ func (s *Service) Upload(localPath, remoteDir string, overwrite bool) (UploadRes
 		return UploadResult{}, err
 	}
 
-	remotePath := remoteJoin(remoteDir, filepath.Base(localPath))
-	if !overwrite {
-		if _, err := c.Stat(remotePath); err == nil {
-			return UploadResult{RemotePath: remotePath, NeedsConfirm: true}, nil
+	total := 0
+	for _, local := range locals {
+		n, err := countLocalItems(local)
+		if err != nil {
+			return UploadResult{}, err
+		}
+		total += n
+		if total > maxTransferItems {
+			return UploadResult{}, fmt.Errorf("超过 %d 项，像是拖错了位置", maxTransferItems)
 		}
 	}
-	if err := upload(c, localPath, remotePath); err != nil {
-		return UploadResult{}, err
+
+	var conflicts []string
+	if !overwrite {
+		for _, local := range locals {
+			dest := remoteJoin(remoteDir, filepath.Base(local))
+			if _, err := c.Stat(dest); err == nil {
+				conflicts = append(conflicts, dest)
+			}
+		}
+		if len(conflicts) > 0 {
+			return UploadResult{Conflicts: conflicts, NeedsConfirm: true}, nil
+		}
 	}
-	return UploadResult{RemotePath: remotePath}, nil
+
+	for _, local := range locals {
+		dest := remoteJoin(remoteDir, filepath.Base(local))
+		if err := uploadTree(c, local, dest); err != nil {
+			return UploadResult{}, err
+		}
+	}
+	return UploadResult{Count: total}, nil
 }
 
-// Download 把远端文件取到本地。
+// Download 把远端一个文件取到指定的本地路径。
 func (s *Service) Download(remotePath, localPath string) error {
 	if localPath == "" {
 		return errors.New("没有选择保存位置")
@@ -439,6 +503,33 @@ func (s *Service) Download(remotePath, localPath string) error {
 		return err
 	}
 	return download(c, remotePath, localPath)
+}
+
+// DownloadMany 把一批远端文件或文件夹取到本地目录。文件夹按同名整棵建出来。
+func (s *Service) DownloadMany(remotes []string, localDir string) error {
+	if len(remotes) == 0 {
+		return errors.New("没有选择要下载的文件")
+	}
+	if strings.TrimSpace(localDir) == "" {
+		return errors.New("没有选择保存位置")
+	}
+	c, err := s.sftpClient()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(localDir, 0o755); err != nil {
+		return fmt.Errorf("创建本地目录失败: %w", err)
+	}
+	for _, remote := range remotes {
+		name := path.Base(strings.TrimSpace(remote))
+		if name == "" || name == "." || name == "/" {
+			return fmt.Errorf("远端路径无效：%s", remote)
+		}
+		if err := downloadTree(c, remote, filepath.Join(localDir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) client() (*ssh.Client, error) {

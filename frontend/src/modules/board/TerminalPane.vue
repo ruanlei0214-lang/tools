@@ -7,6 +7,7 @@ import {
   WriteTerminal,
 } from '../../../wailsjs/go/board/Service'
 import { useActivePolling } from '../../shell/polling'
+import { appendAnsi, clearTermBuf, newTermBuf, renderAnsi } from './terminalAnsi'
 
 // 一个分屏格子对应设备上一个独立的 shell 会话（按 sessionId 区分）。
 // 输出渲染、按键捕获、划词保持都收在这里；摆格子、分屏、分隔条归 CommandPanel。
@@ -24,10 +25,18 @@ const emit = defineEmits<{
   (e: 'refresh-status'): void
 }>()
 
+const FONT_MIN = 9
+const FONT_MAX = 28
+const FONT_DEFAULT = 12
+
 const terminalReady = ref(false)
-const terminalOutput = ref('')
+const terminalHtml = ref('')
+const termBuf = newTermBuf()
+const fontSize = ref(FONT_DEFAULT)
+const sizeHint = ref('')
 const terminalScreen = ref<HTMLElement | null>(null)
 const terminalCapture = ref<HTMLTextAreaElement | null>(null)
+const paneRoot = ref<HTMLElement | null>(null)
 let terminalReading = false
 let terminalStart: Promise<void> | null = null
 let writeChain = Promise.resolve()
@@ -47,11 +56,15 @@ useActivePolling(() => {
 onMounted(() => {
   window.addEventListener('mouseup', onSelectEnd)
   window.addEventListener('keydown', onWindowKey)
+  // 必须非 passive：要拦住 WebView 的 Ctrl+滚轮整页缩放，并改成只动本格字号。
+  paneRoot.value?.addEventListener('wheel', onWheel, { passive: false })
 })
 
 onUnmounted(() => {
   window.removeEventListener('mouseup', onSelectEnd)
   window.removeEventListener('keydown', onWindowKey)
+  paneRoot.value?.removeEventListener('wheel', onWheel)
+  window.clearTimeout(hintTimer)
   // 分屏被关掉时把设备上对应的 shell 也收了，不留孤儿进程。
   void CloseTerminal(props.sessionId)
 })
@@ -145,28 +158,8 @@ async function pullTerminal() {
 
 function appendTerminal(chunk: string) {
   const raw = holdIncompleteEscape(escapeHold + chunk)
-  const clean = sanitizeTerminal(raw).replace(/\r\n/g, '\n')
-  let s = terminalOutput.value
-  for (const ch of clean) {
-    if (ch === '\b' || ch === '\x7f') {
-      if (s.length && !s.endsWith('\n')) s = s.slice(0, -1)
-    } else if (ch === '\r') {
-      const i = s.lastIndexOf('\n')
-      s = i >= 0 ? s.slice(0, i + 1) : ''
-    } else {
-      s += ch
-    }
-  }
-  terminalOutput.value = s.slice(-200_000)
-}
-
-// Tab 补全常夹着响铃、半截 CSI、8 位 C1。漏掉就会在 cd /opt/ 后面冒出一个问号方块。
-function sanitizeTerminal(s: string) {
-  return s
-    .replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
-    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\u001B[@-Z\\-_]/g, '')
-    .replace(/[\u0000-\u0007\u000B\u000C\u000E-\u001A\u001C-\u001F\u0080-\u009F\uFFFD]/g, '')
+  appendAnsi(termBuf, raw)
+  terminalHtml.value = renderAnsi(termBuf)
 }
 
 function holdIncompleteEscape(s: string) {
@@ -208,6 +201,58 @@ const specialKeys: Record<string, string> = {
   ArrowLeft: '\x1b[D',
   Home: '\x1b[H',
   End: '\x1b[F',
+}
+
+let hintTimer = 0
+
+function showSizeHint() {
+  sizeHint.value = `${fontSize.value}px`
+  window.clearTimeout(hintTimer)
+  hintTimer = window.setTimeout(() => {
+    sizeHint.value = ''
+  }, 800)
+}
+
+function zoomBy(step: number) {
+  const el = terminalScreen.value
+  const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 16
+  const next = Math.min(FONT_MAX, Math.max(FONT_MIN, fontSize.value + step))
+  if (next === fontSize.value) return
+  fontSize.value = next
+  showSizeHint()
+  if (atBottom) {
+    void nextTick(() => {
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }
+}
+
+function resetFont() {
+  if (fontSize.value === FONT_DEFAULT) return
+  const el = terminalScreen.value
+  const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 16
+  fontSize.value = FONT_DEFAULT
+  showSizeHint()
+  if (atBottom) {
+    void nextTick(() => {
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }
+}
+
+// 滚轮改本格字号。按住 Shift 仍翻历史，避免长输出没法看。
+function onWheel(e: WheelEvent) {
+  if (e.shiftKey) {
+    const el = terminalScreen.value
+    if (el) {
+      el.scrollTop += e.deltaY
+      e.preventDefault()
+    }
+    return
+  }
+  e.preventDefault()
+  if (e.deltaY === 0) return
+  zoomBy(e.deltaY > 0 ? -1 : 1)
 }
 
 function focusCapture() {
@@ -252,6 +297,21 @@ function onTerminalKey(e: KeyboardEvent) {
     if (k === 'v') {
       e.preventDefault()
       void navigator.clipboard.readText().then((t) => sendKeys(t))
+      return
+    }
+    if (k === '=' || k === '+') {
+      e.preventDefault()
+      zoomBy(1)
+      return
+    }
+    if (k === '-' || k === '_') {
+      e.preventDefault()
+      zoomBy(-1)
+      return
+    }
+    if (k === '0') {
+      e.preventDefault()
+      resetFont()
       return
     }
     return
@@ -300,16 +360,30 @@ defineExpose({
   reopen,
   send: sendKeys,
   clear: () => {
-    terminalOutput.value = ''
+    clearTermBuf(termBuf)
+    terminalHtml.value = ''
   },
   focus: focusCapture,
 })
 </script>
 
 <template>
-  <div class="pane-root" :class="{ active: active && closable }" @mousedown="emit('activate')">
+  <div
+    ref="paneRoot"
+    class="pane-root"
+    :class="{ active: active && closable }"
+    @mousedown="emit('activate')"
+  >
     <div class="terminal-body" @mousedown="onSelectStart" @click="focusCapture">
-      <pre ref="terminalScreen" class="terminal-screen" :class="{ live: terminalReady }">{{ terminalOutput }}</pre>
+      <pre
+        ref="terminalScreen"
+        class="terminal-screen"
+        :class="{ live: terminalReady }"
+        :style="{ fontSize: `${fontSize}px` }"
+        title="滚轮放大缩小文字，Shift+滚轮翻历史"
+        v-html="terminalHtml"
+      />
+      <div v-if="sizeHint" class="size-hint">{{ sizeHint }}</div>
       <textarea
         ref="terminalCapture"
         class="terminal-capture"
@@ -366,12 +440,15 @@ defineExpose({
   background: #111318;
   color: #d8dee9;
   font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
-  font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
   cursor: text;
+}
+
+.terminal-screen :deep(span) {
+  white-space: inherit;
 }
 
 .terminal-body:focus-within .terminal-screen {
@@ -396,6 +473,20 @@ defineExpose({
   border: none;
   opacity: 0;
   resize: none;
+}
+
+.size-hint {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 4;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #e5e7eb;
+  font-size: 12px;
+  pointer-events: none;
 }
 
 /* 关闭钮平时藏起来，悬停格子才浮出来：终端里每个像素都是输出区域。 */

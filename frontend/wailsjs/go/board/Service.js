@@ -22,6 +22,10 @@ export function Download(arg1, arg2) {
   return window['go']['board']['Service']['Download'](arg1, arg2);
 }
 
+export function DownloadMany(arg1, arg2) {
+  return window['go']['board']['Service']['DownloadMany'](arg1, arg2);
+}
+
 export function ExportCommands() {
   return window['go']['board']['Service']['ExportCommands']();
 }
@@ -38,8 +42,16 @@ export function ListDir(arg1) {
   return window['go']['board']['Service']['ListDir'](arg1);
 }
 
-export function PickLocalFile() {
-  return window['go']['board']['Service']['PickLocalFile']();
+export function PickLocalFolder() {
+  return window['go']['board']['Service']['PickLocalFolder']();
+}
+
+export function PickLocalPaths() {
+  return window['go']['board']['Service']['PickLocalPaths']();
+}
+
+export function PickSaveDir() {
+  return window['go']['board']['Service']['PickSaveDir']();
 }
 
 export function PickSaveTarget(arg1) {
@@ -74,8 +86,8 @@ export function Status() {
   return window['go']['board']['Service']['Status']();
 }
 
-export function Upload(arg1, arg2, arg3) {
-  return window['go']['board']['Service']['Upload'](arg1, arg2, arg3);
+export function UploadMany(arg1, arg2, arg3) {
+  return window['go']['board']['Service']['UploadMany'](arg1, arg2, arg3);
 }
 
 export function WriteTerminal(arg1, arg2) {

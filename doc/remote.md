@@ -1,6 +1,6 @@
 # 远程控制（remote）
 
-当前版本 **V1.3.11**，声明在 `frontend/src/modules/remote/module.ts`。
+当前版本 **V1.3.12**，声明在 `frontend/src/modules/remote/module.ts`。
 
 ## 做什么
 
@@ -24,7 +24,7 @@
 ## 界面操作
 
 1. **连接区在顶栏，不在本页**。顶栏显示共享地址和 SSH / WS 两个状态点，一个「连接」
-   按钮同时建立两条连接；地址在 exe 同目录的 `toolbox-config.json` 里改，全系列工具共用。
+   按钮同时建立两条连接。地址在顶栏可直接改，回车或点别处写入 `toolbox-config.json`，全系列工具共用。
    本页不再显示端口和连接参数，要改去 `remote-config.json`。
    程序不会自动连——开机时设备还没起来，一打开就连会把程序卡住。
 2. **IO 控制**标签页：操作栏放在点位上方，操作状态显示在同一行右侧；每个分组一列，左右并排（输出 DO 一列、
@@ -44,7 +44,7 @@
    `BOOL` 显示 ON/OFF 并可切换，`INT` 填整数下发，`FLOAT` 填数字或文本下发。读写走
    `RegisterManager/GetRegisterValue` 和 `RegisterManager/SetRegisterValue`
    （见 `doc/api_documentation/远程模式接口说明.md`）。寄存器没有强制标志，配出来的地址都可以写。
-7. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。
+7. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。灯马上灭；WebSocket 不再等 1 秒关闭握手。若本会话开过强制，仍会先清标志再拆线。
 
 ### 改点位
 
@@ -117,7 +117,7 @@
 | 出厂默认 | `internal/modules/remote/config/config.json`、`io.json`、`register.json` | 编译进产物，改它要重新构建 |
 
 **地址只在一个地方改。** `toolbox-config.json` 里的 `host` 优先于 `remote-config.json` 里的；
-界面上不再给 host 输入框，要改地址去 exe 同目录的 `toolbox-config.json`，全系列工具共用。
+界面上的地址在顶栏改，写入 exe 同目录的 `toolbox-config.json`，全系列工具共用。
 端口、路径、超时仍归本模块，改 `remote-config.json`，页面不显示。
 
 加载时三部分各自「现场那份有就用它，没有就用出厂默认」。干净的一台机器上一份现场配置都没有，

@@ -43,6 +43,25 @@ func TestParseInterfacesHandlesVethSuffix(t *testing.T) {
 	}
 }
 
+func TestParseInterfacesMaster(t *testing.T) {
+	out := `2: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    inet 192.168.1.136/24 brd 192.168.1.255 scope global br0
+3: lan1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br0 state UP qlen 1000
+4: wlan0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop master br0 state DOWN qlen 1000
+`
+	got := parseInterfaces(out, nil)
+	byName := make(map[string]Iface, len(got))
+	for _, i := range got {
+		byName[i.Name] = i
+	}
+	if byName["lan1"].Master != "br0" || byName["wlan0"].Master != "br0" {
+		t.Errorf("桥成员的 Master 应当是 br0，实际 lan1=%q wlan0=%q", byName["lan1"].Master, byName["wlan0"].Master)
+	}
+	if byName["br0"].Master != "" {
+		t.Errorf("桥自己的 Master 应当为空，实际 %q", byName["br0"].Master)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -4,7 +4,11 @@ import {netcfg} from '../models';
 
 export function ApplyConfig(arg1:netcfg.Device,arg2:netcfg.Config):Promise<void>;
 
+export function ApplyWifi(arg1:netcfg.Device,arg2:string,arg3:number):Promise<string>;
+
 export function Defaults():Promise<netcfg.Settings>;
+
+export function GetWifiAp(arg1:netcfg.Device):Promise<netcfg.WifiAp>;
 
 export function ListPorts(arg1:netcfg.Device):Promise<Array<netcfg.Port>>;
 

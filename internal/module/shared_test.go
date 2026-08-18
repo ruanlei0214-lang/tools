@@ -32,6 +32,38 @@ func TestSharedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveHostKeepsCredentials(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(UseTempDataDir(dir))
+
+	if err := SaveShared(Shared{Host: "192.168.3.136", User: "root", Password: "pw", KeyPath: `C:\keys\id`}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveHost("10.0.0.9"); err != nil {
+		t.Fatal(err)
+	}
+	got := LoadShared()
+	want := Shared{Host: "10.0.0.9", User: "root", Password: "pw", KeyPath: `C:\keys\id`}
+	if got != want {
+		t.Fatalf("SaveHost 后 = %+v, 期望 %+v", got, want)
+	}
+}
+
+func TestSaveHostRejectsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(UseTempDataDir(dir))
+
+	if err := SaveShared(Shared{Host: "192.168.3.136", User: "root"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveHost("  "); err == nil {
+		t.Fatal("空地址应当被拒")
+	}
+	if got := LoadShared().Host; got != "192.168.3.136" {
+		t.Fatalf("被拒后 host = %q, 不该改", got)
+	}
+}
+
 func TestSaveSharedRejectsEmptyHost(t *testing.T) {
 	dir := t.TempDir()
 	t.Cleanup(UseTempDataDir(dir))

@@ -36,6 +36,8 @@ type Iface struct {
 	IP      string `json:"ip"`
 	Mask    string `json:"mask"`
 	Gateway string `json:"gateway"`
+	// Master 是这个网口从属的桥（如 br0），不在桥里为空。只在模块内部用。
+	Master string `json:"-"`
 }
 
 // Config 是要下发给某个网口的新配置，Gateway 可以留空表示不改默认路由。
@@ -146,8 +148,9 @@ func (s *Service) Defaults() Settings {
 	return settings
 }
 
-// RestoreNetwork 删除设备上的网络持久化文件。只删文件，重启由现场人工执行。
-// 删哪个文件由 config.json 决定。rm -f 让文件本来就不存在时也算成功。
+// RestoreNetwork 删除设备上的网络持久化文件，并把 setBridge.sh / setWifi.sh
+// 替换成随包的出厂版本——现场改坏的脚本单靠删配置文件救不回来。
+// 重启由现场人工执行。删哪个文件由 config.json 决定，rm -f 让文件本来就不存在时也算成功。
 func (s *Service) RestoreNetwork(d Device) error {
 	client, err := dial(d)
 	if err != nil {
@@ -155,8 +158,23 @@ func (s *Service) RestoreNetwork(d Device) error {
 	}
 	defer client.Close()
 
-	_, err = run(client, fmt.Sprintf("rm -f %s", quote(loadSettings().RestoreFile)))
-	return err
+	if _, err := run(client, fmt.Sprintf("rm -f %s", quote(loadSettings().RestoreFile))); err != nil {
+		return err
+	}
+	scripts := []struct {
+		name    string
+		content []byte
+	}{
+		{"setBridge.sh", setBridgeScript},
+		{"setWifi.sh", setWifiScript},
+	}
+	for _, f := range scripts {
+		if err := writeRemoteFile(client, "/opt/"+f.name, f.content); err != nil {
+			return fmt.Errorf("替换 /opt/%s 失败: %w", f.name, err)
+		}
+	}
+	rememberHost(d.Host)
+	return nil
 }
 
 // persistScript 把地址写进设备的持久化文件，三行依次是 IP、子网掩码、默认网关。

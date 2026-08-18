@@ -12,6 +12,8 @@ export function Disconnect():Promise<board.Status>;
 
 export function Download(arg1:string,arg2:string):Promise<void>;
 
+export function DownloadMany(arg1:Array<string>,arg2:string):Promise<void>;
+
 export function ExportCommands():Promise<string>;
 
 export function ImportCommands():Promise<board.CommandFileResult>;
@@ -20,7 +22,11 @@ export function ListCommands():Promise<board.CommandList>;
 
 export function ListDir(arg1:string):Promise<Array<board.Entry>>;
 
-export function PickLocalFile():Promise<string>;
+export function PickLocalFolder():Promise<string>;
+
+export function PickLocalPaths():Promise<Array<string>>;
+
+export function PickSaveDir():Promise<string>;
 
 export function PickSaveTarget(arg1:string):Promise<string>;
 
@@ -38,6 +44,6 @@ export function StartTerminal(arg1:string):Promise<void>;
 
 export function Status():Promise<board.Status>;
 
-export function Upload(arg1:string,arg2:string,arg3:boolean):Promise<board.UploadResult>;
+export function UploadMany(arg1:Array<string>,arg2:string,arg3:boolean):Promise<board.UploadResult>;
 
 export function WriteTerminal(arg1:string,arg2:string):Promise<void>;

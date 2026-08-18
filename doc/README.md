@@ -4,9 +4,9 @@
 
 | 模块 | 版本 | 文档 | 说明 |
 | --- | --- | --- | --- |
-| remote | V1.3.11 | [remote.md](remote.md) | 控制上位机 IO 与寄存器，点位和连接参数在界面上改 |
-| netcfg | V1.0.6 | [netcfg.md](netcfg.md) | 远程修改设备的 IP、掩码与网关，一键恢复网络 |
-| board | V1.1.17 | [board.md](board.md) | 侧栏「终端」：SSH 终端与自定义指令、SFTP 上传下载 |
+| remote | V1.3.12 | [remote.md](remote.md) | 控制上位机 IO 与寄存器，点位和连接参数在界面上改 |
+| netcfg | V1.0.16 | [netcfg.md](netcfg.md) | 远程修改设备的 IP、掩码与网关，一键恢复网络，设置 WiFi 频段与信道 |
+| board | V1.2.3 | [board.md](board.md) | 侧栏「终端」：SSH 终端与自定义指令、SFTP 上传下载 |
 | ping | V1.1.0 | [ping.md](ping.md) | 侧栏「网络检测」：长 ping 与网段扫描（IP、设备名、MAC） |
 
 新增模块时在此追加一行（含版本号），并按下面的结构写一份同名文档：

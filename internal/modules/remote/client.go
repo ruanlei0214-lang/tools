@@ -203,10 +203,9 @@ func (c *client) closeWith(err error) {
 			c.closeErr.Store(err)
 		}
 		close(c.done)
-		// 先打个招呼再拆线。对端能立刻知道是正常关闭，不用等自己的读超时。
-		_ = c.conn.WriteControl(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-			time.Now().Add(time.Second))
+		// 不走 1 秒的关闭握手：对端不回 Close 时 WriteControl 会把「断开」卡住。
+		// pending 的 call 已经能从 done 退出来，直接拆 TCP 即可。
+		_ = c.conn.SetWriteDeadline(time.Now())
 		_ = c.conn.Close()
 	})
 }

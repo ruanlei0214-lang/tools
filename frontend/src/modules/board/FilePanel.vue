@@ -1,16 +1,20 @@
 <script lang="ts" setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   Download,
+  DownloadMany,
   ListDir,
-  PickLocalFile,
+  PickLocalFolder,
+  PickLocalPaths,
+  PickSaveDir,
   PickSaveTarget,
   ReadRemoteBytes,
   ReadRemoteText,
   StartTerminal,
-  Upload,
+  UploadMany,
   WriteTerminal,
 } from '../../../wailsjs/go/board/Service'
+import { OnFileDrop, OnFileDropOff } from '../../../wailsjs/runtime/runtime'
 import type { board } from '../../../wailsjs/go/models'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 
@@ -33,6 +37,11 @@ const editor = ref<{ path: string; name: string; text: string } | null>(null)
 const clip = ref<{ path: string; name: string; cut: boolean }[]>([])
 const renaming = ref<{ from: string; draft: string } | null>(null)
 const renameInput = ref<HTMLInputElement | null>(null)
+const explorerBody = ref<HTMLElement | null>(null)
+const uploadMenu = ref<{ x: number; y: number } | null>(null)
+// 从列表里往外拖：松在文件区里不算下载，松到区外（终端、桌面）才弹出保存位置。
+let draggingOut = false
+let droppedInside = false
 
 watch(
   () => props.defaultPath,
@@ -48,6 +57,18 @@ watch(
     if (ok && path.value.trim() && !listedPath.value) void list()
   },
 )
+
+// 拖入走 Wails 的文件路径，不是 HTML5 File 对象——文件夹也能拿到本地绝对路径。
+// 监听挂在组件上：keep-alive 切走时 DOM 不在，useDropTarget 不会误伤别的模块。
+onMounted(() => {
+  OnFileDrop((_x, _y, paths) => {
+    if (!paths.length || !listedPath.value || !props.connected || busy.value) return
+    void uploadFrom(paths)
+  }, true)
+})
+onUnmounted(() => {
+  OnFileDropOff()
+})
 
 const canOperate = computed(() => props.connected && !busy.value)
 
@@ -67,7 +88,8 @@ const menuItems = computed<MenuItem[]>(() => {
     return [
       { id: 'paste', label: '粘贴', disabled: !clip.value.length || !listedPath.value },
       { id: 'mkdir', label: '新建文件夹', disabled: !listedPath.value },
-      { id: 'upload', label: '上传' },
+      { id: 'upload-files', label: '上传文件' },
+      { id: 'upload-folder', label: '上传文件夹' },
       { id: 'refresh', label: '刷新' },
     ]
   }
@@ -76,6 +98,7 @@ const menuItems = computed<MenuItem[]>(() => {
     return [
       { id: 'copy', label: `复制 ${targets.length} 项` },
       { id: 'cut', label: `剪切 ${targets.length} 项` },
+      { id: 'download', label: `下载 ${targets.length} 项` },
       { id: 'delete', label: `删除 ${targets.length} 项`, danger: true },
     ]
   }
@@ -86,6 +109,7 @@ const menuItems = computed<MenuItem[]>(() => {
       { id: 'cut', label: '剪切' },
       { id: 'paste', label: '粘贴', disabled: !clip.value.length },
       { id: 'rename', label: '重命名' },
+      { id: 'download', label: '下载' },
       { id: 'delete', label: '删除', danger: true },
     ]
   }
@@ -223,32 +247,112 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 }
 
-function upload() {
-  return act('upload', async () => {
-    if (!listedPath.value) throw new Error('先打开一个目录，再往里上传')
-    const local = await PickLocalFile()
-    if (!local) return
-    let res = await Upload(local, listedPath.value, false)
-    if (res.needsConfirm) {
-      if (!window.confirm(`设备上已有同名文件，覆盖它？\n\n${res.remotePath}`)) {
-        banner.value = { kind: 'info', text: '已取消上传' }
-        return
-      }
-      res = await Upload(local, listedPath.value, true)
-    }
-    banner.value = { kind: 'ok', text: `已上传到 ${res.remotePath}` }
-    await relist()
+function openUploadMenu(e: MouseEvent) {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  uploadMenu.value = { x: r.left, y: r.bottom + 4 }
+}
+
+function pickUpload(id: string) {
+  uploadMenu.value = null
+  if (id === 'upload-files') void uploadFiles()
+  if (id === 'upload-folder') void uploadFolder()
+}
+
+function uploadFiles() {
+  return uploadFromPick(async () => {
+    const paths = await PickLocalPaths()
+    return paths ?? []
   })
 }
 
-function download(row: board.Entry | null) {
-  if (!row || row.isDir) return
-  return act('download', async () => {
-    const local = await PickSaveTarget(row.name)
-    if (!local) return
-    await Download(remoteOf(row), local)
-    banner.value = { kind: 'ok', text: `已保存到 ${local}` }
+function uploadFolder() {
+  return uploadFromPick(async () => {
+    const dir = await PickLocalFolder()
+    return dir ? [dir] : []
   })
+}
+
+function uploadFromPick(pick: () => Promise<string[]>) {
+  return act('upload', async () => {
+    if (!listedPath.value) throw new Error('先打开一个目录，再往里上传')
+    const locals = await pick()
+    if (!locals.length) return
+    await doUpload(locals)
+  })
+}
+
+function uploadFrom(locals: string[]) {
+  return act('upload', () => doUpload(locals))
+}
+
+async function doUpload(locals: string[]) {
+  if (!listedPath.value) throw new Error('先打开一个目录，再往里上传')
+  let res = await UploadMany(locals, listedPath.value, false)
+  if (res.needsConfirm) {
+    const names = (res.conflicts ?? []).join('\n')
+    if (!window.confirm(`设备上已有同名项，覆盖？\n\n${names}`)) {
+      banner.value = { kind: 'info', text: '已取消上传' }
+      return
+    }
+    res = await UploadMany(locals, listedPath.value, true)
+  }
+  banner.value = { kind: 'ok', text: `已上传 ${res.count} 项` }
+  await relist()
+}
+
+function download(rows: board.Entry[]) {
+  if (!rows.length) return
+  return act('download', async () => {
+    if (rows.length === 1 && !rows[0].isDir) {
+      const local = await PickSaveTarget(rows[0].name)
+      if (!local) return
+      await Download(remoteOf(rows[0]), local)
+      banner.value = { kind: 'ok', text: `已保存到 ${local}` }
+      return
+    }
+    const dir = await PickSaveDir()
+    if (!dir) return
+    await DownloadMany(rows.map((e) => remoteOf(e)), dir)
+    banner.value = { kind: 'ok', text: `已保存 ${rows.length} 项到 ${dir}` }
+  })
+}
+
+function onRowDragStart(e: DragEvent, entry: board.Entry) {
+  if (renaming.value) {
+    e.preventDefault()
+    return
+  }
+  if (!selNames.value.includes(entry.name)) {
+    selNames.value = [entry.name]
+    anchorIdx = entries.value.findIndex((x) => x.name === entry.name)
+  }
+  draggingOut = true
+  droppedInside = false
+  e.dataTransfer?.setData('text/plain', selNames.value.join('\n'))
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
+}
+
+function onExplorerDragOver(e: DragEvent) {
+  if (!draggingOut) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+}
+
+function onExplorerDrop(e: DragEvent) {
+  if (!draggingOut) return
+  e.preventDefault()
+  droppedInside = true
+}
+
+function onRowDragEnd(e: DragEvent) {
+  const inside = droppedInside
+  draggingOut = false
+  droppedInside = false
+  if (inside || !selectedEntries.value.length) return
+  const box = explorerBody.value?.getBoundingClientRect()
+  if (!box) return
+  const outside = e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom
+  if (outside) void download(selectedEntries.value)
 }
 
 function copy(list: board.Entry[]) {
@@ -465,13 +569,16 @@ function onMenu(id: string) {
       remove(targets)
       break
     case 'download':
-      if (e) void download(e)
+      void download(targets)
       break
     case 'mkdir':
       mkdir()
       break
-    case 'upload':
-      void upload()
+    case 'upload-files':
+      void uploadFiles()
+      break
+    case 'upload-folder':
+      void uploadFolder()
       break
     case 'refresh':
       void list()
@@ -500,14 +607,23 @@ function humanSize(n: number) {
         @keyup.enter="list()"
       />
       <button :disabled="!canOperate || !path.trim()" @click="list()">刷新</button>
-      <button :disabled="!canOperate || !listedPath" @click="upload">上传</button>
+      <button :disabled="!canOperate || !listedPath" title="上传文件或文件夹，也可以直接拖进来" @click="openUploadMenu">上传</button>
+      <button :disabled="!canOperate || !selectedEntries.length" title="下载选中的文件或文件夹" @click="download(selectedEntries)">下载</button>
       <button :disabled="!canOperate || !listedPath || !clip.length" @click="paste()">粘贴</button>
     </div>
     <div v-if="banner" class="status" :class="banner.kind" :title="banner.text">{{ banner.text }}</div>
 
-    <div class="explorer-body" @contextmenu.prevent="openMenu($event, null)">
+    <div
+      ref="explorerBody"
+      class="explorer-body"
+      title="把本机文件或文件夹拖到这里上传"
+      @contextmenu.prevent="openMenu($event, null)"
+      @dragover="onExplorerDragOver"
+      @drop="onExplorerDrop"
+    >
       <div class="explorer-head">
-        <span>名称</span>
+        <span />
+        <span class="col-name">名称</span>
         <span class="col-size">大小</span>
       </div>
       <div
@@ -517,8 +633,12 @@ function humanSize(n: number) {
         :class="{ selected: selNames.includes(e.name), dir: e.isDir }"
         role="button"
         tabindex="0"
+        :draggable="renaming?.from !== e.name"
+        title="拖到文件区外松手即可下载"
         @click="onRowClick($event, e, i)"
         @dblclick="renaming?.from === e.name ? undefined : open(e)"
+        @dragstart="onRowDragStart($event, e)"
+        @dragend="onRowDragEnd"
         @contextmenu.prevent.stop="openMenu($event, e)"
       >
         <span class="icon" :class="e.isDir ? 'icon-dir' : 'icon-file'" aria-hidden="true" />
@@ -547,6 +667,17 @@ function humanSize(n: number) {
       :items="menuItems"
       @pick="onMenu"
       @close="menu = null"
+    />
+    <ContextMenu
+      v-if="uploadMenu"
+      :x="uploadMenu.x"
+      :y="uploadMenu.y"
+      :items="[
+        { id: 'upload-files', label: '上传文件' },
+        { id: 'upload-folder', label: '上传文件夹' },
+      ]"
+      @pick="pickUpload"
+      @close="uploadMenu = null"
     />
 
     <div v-if="editor" class="mask" @click.self="editor = null">
@@ -633,6 +764,12 @@ function humanSize(n: number) {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+  --wails-drop-target: drop;
+}
+
+.explorer-body.wails-drop-target-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .explorer-head,
@@ -713,6 +850,11 @@ function humanSize(n: number) {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+
+.col-name,
+.col-size {
+  white-space: nowrap;
 }
 
 .col-size {

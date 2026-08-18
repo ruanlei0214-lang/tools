@@ -10,6 +10,7 @@ import (
 
 var (
 	ifaceHeadRe = regexp.MustCompile(`^\d+:\s+([^:@\s]+)[:@].*<([^>]*)>`)
+	masterRe    = regexp.MustCompile(`\bmaster\s+(\S+)`)
 	macRe       = regexp.MustCompile(`link/ether\s+([0-9a-fA-F:]{17})`)
 	inetRe      = regexp.MustCompile(`inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)`)
 	ifaceNameRe = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,32}$`)
@@ -32,6 +33,10 @@ func parseInterfaces(addrOut string, gateways map[string]string) []Iface {
 		if m := ifaceHeadRe.FindStringSubmatch(line); m != nil {
 			flush()
 			cur = &Iface{Name: m[1], Up: hasFlag(m[2], "UP")}
+			// 桥成员的头行里有 "master br0"，地址挂在桥上而不是成员上。
+			if mm := masterRe.FindStringSubmatch(line); mm != nil {
+				cur.Master = mm[1]
+			}
 			continue
 		}
 		if cur == nil {

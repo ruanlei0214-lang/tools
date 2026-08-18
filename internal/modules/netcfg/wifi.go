@@ -9,8 +9,12 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-const defaultWifiApFile = "/opt/runtime/wifiAp"
-const bootWifiApFile = "/opt/wifiAp"
+// wifiAp 固定在 /opt/wifiAp：setWifi.sh 在 /opt 下按相对路径读它，
+// 不去其他目录找。找不到就按出厂默认值建一个。
+const wifiApPath = "/opt/wifiAp"
+
+// 出厂默认值，和 setWifi.sh 里文件缺失时的兜底保持一致。
+var defaultWifiAp = wifiApFile{ssid: "760K", password: "codroid123", channel: 149, band: band5G}
 
 const (
 	band5G   = "5G"
@@ -101,32 +105,24 @@ func wifiApWriteScript(p string, f wifiApFile) string {
 		quote(path.Dir(p)), quote(f.ssid), quote(f.password), f.channel, quote(f.band), quote(p))
 }
 
-func wifiApPaths(primary string) []string {
-	if primary == "" || primary == bootWifiApFile {
-		return []string{bootWifiApFile}
-	}
-	return []string{primary, bootWifiApFile}
-}
-
-func readWifiApFile(client *ssh.Client, p string) (wifiApFile, bool, error) {
-	if _, err := run(client, "test -f "+quote(p)); err != nil {
-		return wifiApFile{}, false, nil
-	}
-	out, err := run(client, "cat "+quote(p))
-	if err != nil {
-		return wifiApFile{}, false, fmt.Errorf("读取 %s 失败: %w", p, err)
-	}
-	return parseWifiAp(out), true, nil
-}
-
-func loadWifiAp(client *ssh.Client, primary string) (wifiApFile, bool, error) {
-	for _, p := range wifiApPaths(primary) {
-		file, found, err := readWifiApFile(client, p)
-		if err != nil || found {
-			return file, found, err
+// loadWifiAp 只认 /opt/wifiAp。文件不存在时按出厂默认值建一个再返回，
+// 免得「第一次打开页面」和「文件被现场删掉」都变成报错。
+func loadWifiAp(client *ssh.Client) (wifiApFile, error) {
+	if _, err := run(client, "test -f "+quote(wifiApPath)); err != nil {
+		if _, werr := run(client, wifiApWriteScript(wifiApPath, defaultWifiAp)); werr != nil {
+			return wifiApFile{}, fmt.Errorf("创建 %s 失败: %w", wifiApPath, werr)
 		}
+		return defaultWifiAp, nil
 	}
-	return wifiApFile{}, false, nil
+	out, err := run(client, "cat "+quote(wifiApPath))
+	if err != nil {
+		return wifiApFile{}, fmt.Errorf("读取 %s 失败: %w", wifiApPath, err)
+	}
+	file := parseWifiAp(out)
+	if file.ssid == "" {
+		return wifiApFile{}, fmt.Errorf("%s 第 1 行 SSID 为空", wifiApPath)
+	}
+	return file, nil
 }
 
 func (s *Service) GetWifiAp(d Device) (WifiAp, error) {
@@ -136,7 +132,7 @@ func (s *Service) GetWifiAp(d Device) (WifiAp, error) {
 	}
 	defer client.Close()
 
-	file, _, err := loadWifiAp(client, loadSettings().WifiApFile)
+	file, err := loadWifiAp(client)
 	if err != nil {
 		return WifiAp{}, err
 	}
@@ -144,26 +140,11 @@ func (s *Service) GetWifiAp(d Device) (WifiAp, error) {
 	return WifiAp{SSID: file.ssid, Channel: file.channel, Band: file.band}, nil
 }
 
-// writeWifiAp 把同一份配置写进 runtime 和开机目录，setWifi.sh 读的是后者。
-func writeWifiAp(client *ssh.Client, primary string, f wifiApFile) error {
-	for _, p := range wifiApPaths(primary) {
-		if _, err := run(client, wifiApWriteScript(p, f)); err != nil {
-			return fmt.Errorf("写入 %s 失败: %w", p, err)
-		}
+func writeWifiAp(client *ssh.Client, f wifiApFile) error {
+	if _, err := run(client, wifiApWriteScript(wifiApPath, f)); err != nil {
+		return fmt.Errorf("写入 %s 失败: %w", wifiApPath, err)
 	}
 	return nil
-}
-
-func (s *Service) loadWifiApChecked(client *ssh.Client) (wifiApFile, string, error) {
-	primary := loadSettings().WifiApFile
-	file, found, err := loadWifiAp(client, primary)
-	if err != nil {
-		return wifiApFile{}, primary, err
-	}
-	if !found || file.ssid == "" {
-		return wifiApFile{}, primary, fmt.Errorf("设备上没有可用的 wifiAp（%s 或 %s）", primary, bootWifiApFile)
-	}
-	return file, primary, nil
 }
 
 // ApplyWifi 写入频段和信道，然后后台整段重启 WiFi。channel 为 0 表示保持当前信道；
@@ -181,7 +162,7 @@ func (s *Service) ApplyWifi(d Device, band string, channel int) (string, error) 
 	}
 	defer client.Close()
 
-	file, primary, err := s.loadWifiApChecked(client)
+	file, err := loadWifiAp(client)
 	if err != nil {
 		return "", err
 	}
@@ -194,7 +175,7 @@ func (s *Service) ApplyWifi(d Device, band string, channel int) (string, error) 
 		file.channel = defaultChannel(band)
 	}
 	file.band = band
-	if err := writeWifiAp(client, primary, file); err != nil {
+	if err := writeWifiAp(client, file); err != nil {
 		return "", err
 	}
 	if _, err := run(client, wifiRestartCmd); err != nil {

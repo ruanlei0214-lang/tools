@@ -1,6 +1,6 @@
 # 网络配置（netcfg）
 
-当前版本 **V1.0.17**，声明在 `frontend/src/modules/netcfg/module.ts`。
+当前版本 **V1.0.18**，声明在 `frontend/src/modules/netcfg/module.ts`。
 
 ## 做什么
 
@@ -23,6 +23,8 @@
    信道、应用并重启。没刷新过不摆后面这些，免误点。
    「应用并重启」把频段（`wifiAp` 第 4 行）和信道（第 3 行）写进配置，然后后台整段
    重启 WiFi：先把 `wlan0` 从 `br0` 摘掉，然后在 `/opt` 下重跑 `setWifi.sh`。
+   `wifiAp` 固定在 `/opt/wifiAp`（`setWifi.sh` 在 `/opt` 下按相对路径读它），不去其他
+   目录找；文件不存在时自动按出厂默认值创建（SSID `760K`、密码 `codroid123`、5G 信道 149）。
    整段重启丢进 `nohup` 立刻返回——SSH 走 br0，前台跑会被桥抖动杀掉。
    驱动（AIC8800）只在 `wlan0` 不存在时才卸了重载：实测重载后 `wlan0` 要 7 秒才重新
    出现，是整段里最贵的一步，而改频段/信道只需重建 hostapd 配置。快路径约 7 秒；
@@ -133,7 +135,8 @@
 | `connectTimeoutSeconds` | SSH 建连的等待上限，写 0 或省略按 8 秒处理，允许 1–120 |
 | `persistIface` | 改完要写进 `restoreFile` 持久化的那个网口，默认 `br0`；留空表示任何网口都不持久化 |
 | `restoreFile` | 持久化文件的路径，也是一键恢复要删除的文件，必须是绝对路径 |
-| `wifiApFile` | WiFi 名称/密码/信道/频段文件，第 3 行是信道、第 4 行是频段（`5G` 或 `2.4G`，缺省按 5G），默认 `/opt/runtime/wifiAp`，必须是绝对路径 |
+
+WiFi 配置文件 `wifiAp` 固定在设备 `/opt/wifiAp`，不可配置；不存在时由工具按出厂默认值自动创建。
 
 ### 连接超时
 

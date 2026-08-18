@@ -263,7 +263,6 @@ export namespace netcfg {
 	    restoreFile: string;
 	    connectTimeoutSeconds: number;
 	    persistIface: string;
-	    wifiApFile: string;
 	    warning: string;
 	
 	    static createFrom(source: any = {}) {
@@ -278,7 +277,6 @@ export namespace netcfg {
 	        this.restoreFile = source["restoreFile"];
 	        this.connectTimeoutSeconds = source["connectTimeoutSeconds"];
 	        this.persistIface = source["persistIface"];
-	        this.wifiApFile = source["wifiApFile"];
 	        this.warning = source["warning"];
 	    }
 	

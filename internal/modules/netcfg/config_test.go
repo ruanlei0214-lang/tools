@@ -89,8 +89,6 @@ func TestParseSettings(t *testing.T) {
 		{"恢复路径为空", `{"restoreFile":""}`, true},
 		{"恢复路径是相对路径", `{"restoreFile":"opt/runtime/pi"}`, true},
 		{"恢复路径只有斜杠", `{"restoreFile":"/"}`, true},
-		{"wifiAp 路径是相对路径", `{"restoreFile":"/opt/runtime/pi","wifiApFile":"opt/runtime/wifiAp"}`, true},
-		{"省略 wifiAp 路径按默认值", `{"restoreFile":"/opt/runtime/pi"}`, false},
 	}
 
 	for _, tt := range tests {
@@ -99,12 +97,9 @@ func TestParseSettings(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
 			}
-			if err == nil && got.Device.Port != 22 {
-				t.Errorf("端口 = %d, 期望 22", got.Device.Port)
-			}
-			if err == nil && tt.name == "省略 wifiAp 路径按默认值" && got.WifiApFile != defaultWifiApFile {
-				t.Errorf("wifiApFile = %q, 期望 %q", got.WifiApFile, defaultWifiApFile)
-			}
-		})
+		if err == nil && got.Device.Port != 22 {
+			t.Errorf("端口 = %d, 期望 22", got.Device.Port)
+		}
+	})
 	}
 }

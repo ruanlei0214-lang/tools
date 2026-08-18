@@ -82,12 +82,26 @@ func TestValidateBand(t *testing.T) {
 }
 
 func TestWifiApWriteScript(t *testing.T) {
-	got := wifiApWriteScript("/opt/runtime/wifiAp", wifiApFile{
+	got := wifiApWriteScript(wifiApPath, wifiApFile{
 		ssid: "codroidRobot", password: "codroid123", channel: 149, band: band5G,
 	})
-	want := "mkdir -p '/opt/runtime' && printf '%s\\n%s\\n%d\\n%s\\n' 'codroidRobot' 'codroid123' 149 '5G' > '/opt/runtime/wifiAp'"
+	want := "mkdir -p '/opt' && printf '%s\\n%s\\n%d\\n%s\\n' 'codroidRobot' 'codroid123' 149 '5G' > '/opt/wifiAp'"
 	if got != want {
 		t.Fatalf("实际: %s\n期望: %s", got, want)
+	}
+}
+
+// 出厂默认值必须和 setWifi.sh 文件缺失时的兜底一致，否则自动建出来的文件
+// 和脚本自己脑补的配置对不上。
+func TestDefaultWifiApMatchesScript(t *testing.T) {
+	if defaultWifiAp.ssid != "760K" || defaultWifiAp.password != "codroid123" {
+		t.Fatalf("默认 SSID/密码要和 setWifi.sh 兜底一致，实际 %+v", defaultWifiAp)
+	}
+	if defaultWifiAp.band != band5G || defaultWifiAp.channel != 149 {
+		t.Fatalf("默认频段/信道要和 setWifi.sh 兜底一致，实际 %+v", defaultWifiAp)
+	}
+	if err := validateChannel(defaultWifiAp.band, defaultWifiAp.channel); err != nil {
+		t.Fatalf("默认信道必须合法：%v", err)
 	}
 }
 
@@ -109,18 +123,5 @@ func TestWifiRestartCmdStaysInOpt(t *testing.T) {
 	}
 	if strings.Contains(wifiRestartCmd, "192.168.6.1") {
 		t.Fatal("现行脚本不再给 wlan0 配 192.168.6.1")
-	}
-}
-
-func TestWifiApPathsIncludesBootFile(t *testing.T) {
-	got := wifiApPaths(defaultWifiApFile)
-	if len(got) != 2 || got[0] != defaultWifiApFile || got[1] != bootWifiApFile {
-		t.Fatalf("必须同时写 runtime 和 /opt/wifiAp，实际 %v", got)
-	}
-	if got := wifiApPaths(bootWifiApFile); len(got) != 1 || got[0] != bootWifiApFile {
-		t.Fatalf("主路径就是开机文件时不要写两遍，实际 %v", got)
-	}
-	if got := wifiApPaths(""); len(got) != 1 || got[0] != bootWifiApFile {
-		t.Fatalf("空主路径应回落到开机文件，实际 %v", got)
 	}
 }

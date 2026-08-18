@@ -9,6 +9,5 @@
   "gateway": "",
   "connectTimeoutSeconds": 2,
   "persistIface": "br0",
-  "restoreFile": "/opt/runtime/ip",
-  "wifiApFile": "/opt/runtime/wifiAp"
+  "restoreFile": "/opt/runtime/ip"
 }

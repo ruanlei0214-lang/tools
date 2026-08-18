@@ -85,26 +85,6 @@ export namespace board {
 		}
 	}
 	
-	export class CommandResult {
-	    command: string;
-	    stdout: string;
-	    stderr: string;
-	    success: boolean;
-	    error: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CommandResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.command = source["command"];
-	        this.stdout = source["stdout"];
-	        this.stderr = source["stderr"];
-	        this.success = source["success"];
-	        this.error = source["error"];
-	    }
-	}
 	export class Device {
 	    host: string;
 	    port: number;
@@ -144,7 +124,6 @@ export namespace board {
 	export class Settings {
 	    device: Device;
 	    connectTimeoutSeconds: number;
-	    commandTimeoutSeconds: number;
 	    defaultPath: string;
 	    warning: string;
 	
@@ -156,7 +135,6 @@ export namespace board {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.device = this.convertValues(source["device"], Device);
 	        this.connectTimeoutSeconds = source["connectTimeoutSeconds"];
-	        this.commandTimeoutSeconds = source["commandTimeoutSeconds"];
 	        this.defaultPath = source["defaultPath"];
 	        this.warning = source["warning"];
 	    }
@@ -443,42 +421,6 @@ export namespace remote {
 	        this.port = source["port"];
 	        this.path = source["path"];
 	    }
-	}
-	export class DeviceSettings {
-	    device: Device;
-	    connectTimeoutSeconds: number;
-	    requestTimeoutSeconds: number;
-	    refreshIntervalMs: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new DeviceSettings(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.device = this.convertValues(source["device"], Device);
-	        this.connectTimeoutSeconds = source["connectTimeoutSeconds"];
-	        this.requestTimeoutSeconds = source["requestTimeoutSeconds"];
-	        this.refreshIntervalMs = source["refreshIntervalMs"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class Point {
 	    label: string;

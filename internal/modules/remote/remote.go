@@ -119,28 +119,6 @@ func (s *Service) snapshot() Settings {
 	return s.settings
 }
 
-// SaveDevice 保存连接参数。校验不过就不写盘，界面上那份也不动。
-//
-// 端口、路径、超时写进本模块自己的 remote-config.json。地址不在这里写：
-// 它在共享配置 toolbox-config.json 里改；这里保存时带上它只是为了让校验看到完整的一份。
-//
-// 保存不碰连接：地址改了之后是否重连由操作员按「连接」决定。
-// 自动断了重连的话，正在观察某一路信号的人会莫名其妙丢一次连接。
-func (s *Service) SaveDevice(in DeviceSettings) (Settings, error) {
-	normalized, err := validateDevice(in)
-	if err != nil {
-		return Settings{}, err
-	}
-	raw, err := json.MarshalIndent(normalized, "", "  ")
-	if err != nil {
-		return Settings{}, err
-	}
-	if err := writeStore(deviceFileName, raw); err != nil {
-		return Settings{}, err
-	}
-	return s.reload(), nil
-}
-
 // SavePanel 保存一整个点位面板。前端每次改动都送整份过来，增、删、改共用这一条路径——
 // 三个方法各写一遍校验和落盘只会让它们慢慢长歪。
 func (s *Service) SavePanel(tab Tab) (Settings, error) {
@@ -153,14 +131,6 @@ func (s *Service) SavePanel(tab Tab) (Settings, error) {
 		return Settings{}, err
 	}
 	if err := writeStore(src.file, raw); err != nil {
-		return Settings{}, err
-	}
-	return s.reload(), nil
-}
-
-// ResetDevice 把连接参数退回出厂默认。
-func (s *Service) ResetDevice() (Settings, error) {
-	if err := removeStore(deviceFileName); err != nil {
 		return Settings{}, err
 	}
 	return s.reload(), nil

@@ -32,9 +32,6 @@ func TestParseSettingsFillsDefaults(t *testing.T) {
 	if s.ConnectTimeoutSeconds != defaultConnectTimeout {
 		t.Errorf("connectTimeout=%d", s.ConnectTimeoutSeconds)
 	}
-	if s.CommandTimeoutSeconds != defaultCommandTimeout {
-		t.Errorf("commandTimeout=%d", s.CommandTimeoutSeconds)
-	}
 	if s.DefaultPath != defaultRemotePath {
 		t.Errorf("defaultPath=%q，期望 %q", s.DefaultPath, defaultRemotePath)
 	}
@@ -59,7 +56,6 @@ func TestParseSettingsRejects(t *testing.T) {
 	}{
 		{"端口越界", `{"device":{"port":70000}}`, "65535"},
 		{"连接超时越界", `{"connectTimeoutSeconds":9999}`, "connectTimeoutSeconds"},
-		{"指令超时越界", `{"commandTimeoutSeconds":9999}`, "commandTimeoutSeconds"},
 		{"不是 JSON", `{`, "unexpected end"},
 	}
 

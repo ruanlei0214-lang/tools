@@ -20,11 +20,7 @@ export function PulseIO(arg1:remote.IOPoint,arg2:number,arg3:number,arg4:number)
 
 export function PulseRegister(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
 
-export function ResetDevice():Promise<remote.Settings>;
-
 export function ResetPanel(arg1:string):Promise<remote.Settings>;
-
-export function SaveDevice(arg1:remote.DeviceSettings):Promise<remote.Settings>;
 
 export function SavePanel(arg1:remote.Tab):Promise<remote.Settings>;
 

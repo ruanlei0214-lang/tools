@@ -1,7 +1,6 @@
 package remote
 
 import (
-	"embedtools/internal/module"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -596,53 +595,6 @@ func TestServiceSavePanelRejectsBadPointsWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestServiceSaveDeviceTakesEffect(t *testing.T) {
-	useTempConfigDir(t)
-	s := newService()
-
-	saved, err := s.SaveDevice(DeviceSettings{
-		Device:                Device{Host: "10.9.8.7", Port: 9100, Path: "ws"},
-		ConnectTimeoutSeconds: 9,
-		RequestTimeoutSeconds: 11,
-		RefreshIntervalMs:     2000,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if saved.Device.Host != "10.9.8.7" || saved.Device.Path != "/ws" {
-		t.Fatalf("device=%+v", saved.Device)
-	}
-	// 超时立刻按新值算，不用重启。
-	if s.requestTimeout() != 11*time.Second || s.connectTimeout() != 9*time.Second {
-		t.Fatalf("超时没跟着变：%v/%v", s.connectTimeout(), s.requestTimeout())
-	}
-	if s.Config().RefreshIntervalMs != 2000 {
-		t.Fatalf("刷新间隔没跟着变：%d", s.Config().RefreshIntervalMs)
-	}
-	// 标签页不该被连接参数的保存牵连掉。
-	if len(s.Config().Tabs) != len(saved.Tabs) || len(saved.Tabs) == 0 {
-		t.Fatalf("标签页被牵连了：%d", len(saved.Tabs))
-	}
-}
-
-func TestServiceSaveDeviceRejectsOutOfRangeWithoutWriting(t *testing.T) {
-	useTempConfigDir(t)
-	s := newService()
-
-	for _, in := range []DeviceSettings{
-		{Device: Device{Host: "10.0.0.1", Port: 70000}},
-		{Device: Device{Host: "10.0.0.1"}, RequestTimeoutSeconds: 9999},
-		{Device: Device{Host: "10.0.0.1"}, RefreshIntervalMs: 50},
-	} {
-		if _, err := s.SaveDevice(in); err == nil {
-			t.Fatalf("越界的值应当被拒：%+v", in)
-		}
-	}
-	if _, _, err := readStore(deviceFileName); !errors.Is(err, errNoOverride) {
-		t.Fatal("被拒的保存不该落盘")
-	}
-}
-
 // 改配置不碰连接：正在盯着某一路信号的人不该因为别人改了个点位名而丢一次连接。
 func TestServiceSaveKeepsConnection(t *testing.T) {
 	useTempConfigDir(t)
@@ -653,9 +605,6 @@ func TestServiceSaveKeepsConnection(t *testing.T) {
 		Kind:   kindIO,
 		Groups: []Group{{Points: []Point{{Type: "DO", Port: 3}}}},
 	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.SaveDevice(DeviceSettings{Device: Device{Host: "10.9.8.7"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ResetPanel(kindIO); err != nil {
@@ -688,7 +637,8 @@ func TestServiceResetGoesBackToFactoryDefaults(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveDevice(DeviceSettings{Device: Device{Host: "10.9.8.7"}}); err != nil {
+	// 连接参数有现场覆盖时，恢复面板不该把它一起抹掉。
+	if err := writeStore(deviceFileName, []byte(`{"device":{"host":"10.9.8.7"}}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -699,38 +649,8 @@ func TestServiceResetGoesBackToFactoryDefaults(t *testing.T) {
 	if findTab(back, kindIO).Title != findTab(factory, kindIO).Title {
 		t.Fatalf("IO 没退回出厂默认：%+v", findTab(back, kindIO))
 	}
-	// 只恢复了 IO，连接参数那份该留着。
 	if back.Device.Host != "10.9.8.7" {
 		t.Fatalf("连接参数被一起恢复了：%+v", back.Device)
-	}
-
-	back, err = s.ResetDevice()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// ResetDevice 删掉 remote-config.json，地址、端口、路径整体退回出厂默认。
-	// 地址的修改入口在顶栏凭据弹层（写共享配置），不归本模块的保存管。
-	if back.Device != factory.Device {
-		t.Fatalf("连接参数该整体退回出厂默认：%+v", back.Device)
-	}
-	// 共享配置里有地址时，恢复默认不该把它抹掉——那是全系列工具共用的地址，
-	// 不是本模块自己的连接参数。
-	if err := module.SaveShared(module.Shared{Host: "10.9.8.7"}); err != nil {
-		t.Fatal(err)
-	}
-	back, err = s.ResetDevice()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if back.Device.Host != "10.9.8.7" {
-		t.Fatalf("共享配置的地址不该被 ResetDevice 抹掉：%+v", back.Device)
-	}
-	if back.Device.Port != factory.Device.Port || back.Device.Path != factory.Device.Path {
-		t.Fatalf("端口和路径该退回出厂默认：%+v", back.Device)
-	}
-	// 连点两次「恢复默认」不该报错。
-	if _, err := s.ResetDevice(); err != nil {
-		t.Fatal(err)
 	}
 	if _, err := s.ResetPanel("magic"); err == nil {
 		t.Fatal("不认识的类型应当报错")

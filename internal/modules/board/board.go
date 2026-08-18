@@ -150,21 +150,6 @@ func (s *Service) Connect(d Device) (Status, error) {
 	return Status{Connected: true, Addr: addr}, nil
 }
 
-// SaveDevice 保存连接参数到共享配置。地址、用户名、密码、密钥路径都写进
-// toolbox-config.json。界面不再提供编辑入口，现场改凭据直接改这份文件。
-// 返回更新后的页面默认值（共享配置优先）。
-func (s *Service) SaveDevice(d Device) (Settings, error) {
-	if err := module.SaveShared(module.Shared{
-		Host:     d.Host,
-		User:     d.User,
-		Password: d.Password,
-		KeyPath:  d.KeyPath,
-	}); err != nil {
-		return Settings{}, err
-	}
-	return s.Config(), nil
-}
-
 // Disconnect 主动断开。切走页面或换设备时调用，别把连接挂在那儿。
 func (s *Service) Disconnect() Status {
 	s.mu.Lock()
@@ -217,14 +202,6 @@ func (s *Service) ListCommands() CommandList { return loadCommands() }
 // SaveCommands 校验并整份写回按钮清单，返回写进去的那份（补齐了编号）。
 func (s *Service) SaveCommands(cmds []Command) (CommandList, error) { return saveCommands(cmds) }
 
-// ResetCommands 删掉现场清单，退回出厂默认。
-func (s *Service) ResetCommands() (CommandList, error) {
-	if err := removeCommandsStore(); err != nil {
-		return CommandList{}, err
-	}
-	return loadCommands(), nil
-}
-
 // ExportCommands 把当前清单存成用户选的 JSON 文件。取消时返回空路径。
 func (s *Service) ExportCommands() (string, error) {
 	if s.ctx == nil {
@@ -275,25 +252,6 @@ func (s *Service) ImportCommands() (CommandFileResult, error) {
 		return CommandFileResult{}, err
 	}
 	return CommandFileResult{List: list, Path: path}, nil
-}
-
-// RunCommand 按编号取出命令并原样下发。
-//
-// 从清单文件里取而不是让前端把命令送过来：执行的必须是那个被保存下来的命令，
-// 界面上显示的和实际跑的不能是两回事。
-func (s *Service) RunCommand(id string) (CommandResult, error) {
-	list := loadCommands()
-	for _, c := range list.Commands {
-		if c.ID == id {
-			conn, err := s.client()
-			if err != nil {
-				return CommandResult{}, err
-			}
-			timeout := time.Duration(s.settings.CommandTimeoutSeconds) * time.Second
-			return run(conn, c.Command, timeout)
-		}
-	}
-	return CommandResult{}, fmt.Errorf("按钮 %q 已经不在清单里了，刷新一下页面", id)
 }
 
 // StartTerminal 在当前 SSH 连接上为 id 打开一个持久 PTY。id 已存在且存活时复用；
@@ -422,20 +380,6 @@ func (s *Service) ReadRemoteBytes(remotePath string) (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// PickKeyFile 弹系统对话框选一把本机私钥，取消时返回空字符串。
-func (s *Service) PickKeyFile() (string, error) {
-	if s.ctx == nil {
-		return "", errors.New("界面还没准备好，稍后再试")
-	}
-	return runtime.OpenFileDialog(s.ctx, runtime.OpenDialogOptions{
-		Title: "选择 SSH 私钥",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "私钥", Pattern: "*.pem;*.key;id_rsa;id_ed25519;id_ecdsa;id_dsa"},
-			{DisplayName: "所有文件", Pattern: "*.*"},
-		},
-	})
-}
-
 // PickLocalFile 弹系统对话框选一个要上传的本地文件，取消时返回空字符串。
 func (s *Service) PickLocalFile() (string, error) {
 	if s.ctx == nil {
@@ -495,24 +439,6 @@ func (s *Service) Download(remotePath, localPath string) error {
 		return err
 	}
 	return download(c, remotePath, localPath)
-}
-
-// Delete 删一个远端文件。
-//
-// 不在这儿判断它是不是目录：界面上那个「是目录」来自上一次列目录的结果，可能已经过期。
-// 交给设备判断，非空目录它自己会拒绝——SFTP 的 Remove 不递归，删不掉一整棵树。
-func (s *Service) Delete(remotePath string) error {
-	if remotePath == "" {
-		return errors.New("没有选择要删除的文件")
-	}
-	c, err := s.sftpClient()
-	if err != nil {
-		return err
-	}
-	if err := c.Remove(remotePath); err != nil {
-		return fmt.Errorf("删除 %s 失败: %w", remotePath, err)
-	}
-	return nil
 }
 
 func (s *Service) client() (*ssh.Client, error) {

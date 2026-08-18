@@ -25,18 +25,13 @@ const (
 	// 填个 3600 等于把页面冻住一小时。
 	defaultConnectTimeout = 8
 	maxConnectTimeout     = 120
-	// defaultCommandTimeout 是单条指令的上限。设备上跑挂的命令不能让界面一直转圈，
-	// 但重启服务这类操作确实要几秒到几十秒，所以给得比连接超时宽。
-	defaultCommandTimeout = 30
-	maxCommandTimeout     = 600
 	defaultRemotePath     = "/opt"
 )
 
-// Settings 是页面的默认值与两个超时。
+// Settings 是页面的默认值与连接超时。
 type Settings struct {
 	Device                Device `json:"device"`
 	ConnectTimeoutSeconds int    `json:"connectTimeoutSeconds"`
-	CommandTimeoutSeconds int    `json:"commandTimeoutSeconds"`
 	// DefaultPath 是文件标签页打开时填在路径框里的远端目录。
 	DefaultPath string `json:"defaultPath"`
 	// Warning 非空表示 config.json 不可用，当前这些值来自内置兜底。
@@ -59,7 +54,6 @@ func builtinSettings() Settings {
 	return Settings{
 		Device:                Device{Host: "192.168.1.136", Port: defaultPort, User: "root"},
 		ConnectTimeoutSeconds: defaultConnectTimeout,
-		CommandTimeoutSeconds: defaultCommandTimeout,
 		DefaultPath:           defaultRemotePath,
 	}
 }
@@ -99,13 +93,6 @@ func parseSettings(raw []byte) (Settings, error) {
 	if s.ConnectTimeoutSeconds < 1 || s.ConnectTimeoutSeconds > maxConnectTimeout {
 		return Settings{}, fmt.Errorf(
 			"connectTimeoutSeconds %d 不在 1-%d 秒之间", s.ConnectTimeoutSeconds, maxConnectTimeout)
-	}
-	if s.CommandTimeoutSeconds == 0 {
-		s.CommandTimeoutSeconds = defaultCommandTimeout
-	}
-	if s.CommandTimeoutSeconds < 1 || s.CommandTimeoutSeconds > maxCommandTimeout {
-		return Settings{}, fmt.Errorf(
-			"commandTimeoutSeconds %d 不在 1-%d 秒之间", s.CommandTimeoutSeconds, maxCommandTimeout)
 	}
 	if s.DefaultPath = strings.TrimSpace(s.DefaultPath); s.DefaultPath == "" {
 		s.DefaultPath = defaultRemotePath

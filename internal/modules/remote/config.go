@@ -305,28 +305,6 @@ func validatePanel(tab Tab) (Tab, panelSource, error) {
 	return tab, src, nil
 }
 
-// validateDevice 是界面保存连接参数时的校验入口。先编成 JSON 再交给 parseRoot，
-// 图的是范围规则只有一份：改了 maxRequestTimeout 之后不用记得同步第二处。
-//
-// Host 不在这里校验：它来自共享配置，校验在 module.SaveShared 里。这里只保证
-// 端口、路径、超时这些本模块自己的字段合法。
-func validateDevice(in DeviceSettings) (DeviceSettings, error) {
-	raw, err := json.Marshal(in)
-	if err != nil {
-		return DeviceSettings{}, err
-	}
-	s, err := parseRoot(raw)
-	if err != nil {
-		return DeviceSettings{}, err
-	}
-	return DeviceSettings{
-		Device:                s.Device,
-		ConnectTimeoutSeconds: s.ConnectTimeoutSeconds,
-		RequestTimeoutSeconds: s.RequestTimeoutSeconds,
-		RefreshIntervalMs:     s.RefreshIntervalMs,
-	}, nil
-}
-
 const (
 	kindIO       = "io"
 	kindRegister = "register"

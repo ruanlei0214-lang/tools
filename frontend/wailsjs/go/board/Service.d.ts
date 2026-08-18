@@ -8,8 +8,6 @@ export function Config():Promise<board.Settings>;
 
 export function Connect(arg1:board.Device):Promise<board.Status>;
 
-export function Delete(arg1:string):Promise<void>;
-
 export function Disconnect():Promise<board.Status>;
 
 export function Download(arg1:string,arg2:string):Promise<void>;
@@ -22,8 +20,6 @@ export function ListCommands():Promise<board.CommandList>;
 
 export function ListDir(arg1:string):Promise<Array<board.Entry>>;
 
-export function PickKeyFile():Promise<string>;
-
 export function PickLocalFile():Promise<string>;
 
 export function PickSaveTarget(arg1:string):Promise<string>;
@@ -34,15 +30,9 @@ export function ReadRemoteText(arg1:string):Promise<string>;
 
 export function ReadTerminal(arg1:string):Promise<string>;
 
-export function ResetCommands():Promise<board.CommandList>;
-
-export function RunCommand(arg1:string):Promise<board.CommandResult>;
-
 export function RunCommandInTerminal(arg1:string,arg2:string):Promise<void>;
 
 export function SaveCommands(arg1:Array<board.Command>):Promise<board.CommandList>;
-
-export function SaveDevice(arg1:board.Device):Promise<board.Settings>;
 
 export function StartTerminal(arg1:string):Promise<void>;
 

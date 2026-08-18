@@ -1,7 +1,6 @@
 package board
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -130,64 +129,4 @@ func dialWithin(addr string, cfg *ssh.ClientConfig, timeout time.Duration) (*ssh
 		return nil, err
 	}
 	return ssh.NewClient(c, chans, reqs), nil
-}
-
-// CommandResult 是一条指令跑完的结果。
-//
-// 退出码非 0 不算 Go 层面的错误，而是 Success 为 false：那是设备如实回答了
-// 「这条命令失败了」，属于要显示给人看的正常结果，不是调用出了问题。
-type CommandResult struct {
-	Command string `json:"command"`
-	Stdout  string `json:"stdout"`
-	Stderr  string `json:"stderr"`
-	Success bool   `json:"success"`
-	// Error 是退出码非 0 时的简短说明，成功时为空。
-	Error string `json:"error"`
-}
-
-// run 开一个 session 跑一条命令。SSH 协议里一条 session 只能跑一条命令，
-// 但连接可以复用，所以这里只开 session、不重新建连。
-//
-// 超时到了就把 session 关掉——Run 会因此返回，goroutine 不会漏。不动整条连接：
-// 一条命令跑挂不代表连接坏了，把连接拆了反而让后面每个按钮都要重连。
-func run(c *ssh.Client, cmd string, timeout time.Duration) (CommandResult, error) {
-	res := CommandResult{Command: cmd}
-
-	sess, err := c.NewSession()
-	if err != nil {
-		return res, fmt.Errorf("打开会话失败: %w", err)
-	}
-	defer sess.Close()
-
-	var stdout, stderr bytes.Buffer
-	sess.Stdout = &stdout
-	sess.Stderr = &stderr
-
-	done := make(chan error, 1)
-	go func() { done <- sess.Run(cmd) }()
-
-	var runErr error
-	select {
-	case runErr = <-done:
-	case <-time.After(timeout):
-		sess.Close()
-		<-done // 等那个 goroutine 退掉，别让它悬着写 buffer
-		res.Stdout, res.Stderr = stdout.String(), stderr.String()
-		return res, fmt.Errorf("命令超过 %s 还没结束，已放弃等待（设备上它可能还在跑）", timeout)
-	}
-
-	res.Stdout, res.Stderr = stdout.String(), stderr.String()
-
-	if runErr == nil {
-		res.Success = true
-		return res, nil
-	}
-	// 退出码非 0：命令本身失败了，如实报回去而不是当调用错误。
-	var exitErr *ssh.ExitError
-	if errors.As(runErr, &exitErr) {
-		res.Error = fmt.Sprintf("命令退出码 %d", exitErr.ExitStatus())
-		return res, nil
-	}
-	// 走到这儿是传输层的问题：连接断了、session 开不出来。
-	return res, runErr
 }

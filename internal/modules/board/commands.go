@@ -107,17 +107,6 @@ func parseCommands(raw []byte, label string) ([]Command, error) {
 	return normalized, nil
 }
 
-func removeCommandsStore() error {
-	path, err := commandsPath()
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("删除 %s 失败：%w", path, err)
-	}
-	return nil
-}
-
 func commandsBytes() ([]byte, error) {
 	return json.MarshalIndent(loadCommands().Commands, "", "  ")
 }

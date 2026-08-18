@@ -35,7 +35,6 @@
 {
   "device": { "host": "192.168.1.136", "port": 22, "user": "root", "password": "" },
   "connectTimeoutSeconds": 8,
-  "commandTimeoutSeconds": 30,
   "defaultPath": "/opt"
 }
 ```
@@ -44,7 +43,6 @@
 | --- | --- |
 | `device` | `host` / `user` / `password` 是没有共享配置时的出厂值；`port` 连的时候用，不在界面上。`password` 留空就是空密码 |
 | `connectTimeoutSeconds` | 建连超时，1–120，省略按 `8`。它覆盖 TCP 建连 + SSH 握手 + 认证三步的总时长 |
-| `commandTimeoutSeconds` | 单条指令的上限，1–600，省略按 `30` |
 | `defaultPath` | 文件标签页打开时填在路径框里的远端目录，省略按 `/opt` |
 
 **共享配置优先。** `Config()` 返回的地址、用户名、密码、密钥路径，优先用
@@ -62,7 +60,7 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
 | 出厂默认 | `internal/modules/board/config/commands.json` | 编译进产物，改它要重新构建 |
 
 干净机器上还没有现场文件时，界面就是出厂那两份按钮（重启运行时、看进程），没有告警。
-界面上第一次保存或导入才生成现场文件。「恢复默认」就是删掉现场那一份。
+界面上第一次保存或导入才生成现场文件；想退回出厂默认，删掉这份现场文件即可。
 完整路径显示在指令标签页底部。整夹拷走会一起带走；只拷一个 exe 文件则不会。
 
 文件是一个 JSON 数组，也可以用操作栏的导入导出换一份：
@@ -86,15 +84,12 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
 | --- | --- | --- |
 | `Config` | `() => Promise<Settings>` | 界面默认值 + 配置告警；地址和 SSH 凭据优先用共享配置 `toolbox-config.json` |
 | `Connect` | `(d: Device) => Promise<Status>` | 建 SSH 连接并在上面开 SFTP，重复调用先断旧的；连上后把地址写进共享配置 |
-| `SaveDevice` | `(d: Device) => Promise<Settings>` | 把连接参数写进共享配置，全系列工具共用；界面不再调用，改凭据直接改文件 |
 | `Disconnect` | `() => Promise<Status>` | 主动断开 |
 | `Status` | `() => Promise<Status>` | 当前连接状态 |
 | `ListCommands` | `() => Promise<CommandList>` | 读按钮清单（现场优先，没有就出厂默认），不需要连接 |
 | `SaveCommands` | `(cmds: Command[]) => Promise<CommandList>` | 整份写回现场文件，返回补齐编号后的那份 |
-| `ResetCommands` | `() => Promise<CommandList>` | 删掉现场清单，退回出厂默认 |
 | `ExportCommands` | `() => Promise<string>` | 弹出保存框，把当前清单写成 JSON；取消返回空字符串 |
 | `ImportCommands` | `() => Promise<CommandFileResult>` | 弹出打开框，校验后整份替换；取消时 `canceled` 为真、清单不动 |
-| `RunCommand` | `(id: string) => Promise<CommandResult>` | 旧的一次性执行接口，仍保留 |
 | `StartTerminal` | `(id: string) => Promise<void>` | 在当前 SSH 连接上为 id 打开持久 PTY；id 存活时复用，新会话最多 4 个 |
 | `RunCommandInTerminal` | `(id, cmdId: string) => Promise<void>` | 从清单取出命令并写入 id 对应的终端 |
 | `WriteTerminal` | `(id, text: string) => Promise<void>` | 原样写入 id 对应的终端 |
@@ -103,18 +98,15 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
 | `ListDir` | `(dir: string) => Promise<Entry[]>` | 列远端目录 |
 | `ReadRemoteText` | `(path: string) => Promise<string>` | 读一份够小的文本，给编辑框用；二进制或超过 48KB 会拒 |
 | `ReadRemoteBytes` | `(path: string) => Promise<string>` | 读一份不超过 4MB 的文件（前端拿到的是 base64），给终端下方预览图片用 |
-| `PickKeyFile` | `() => Promise<string>` | 弹对话框选本机私钥，取消返回空串 |
 | `PickLocalFile` | `() => Promise<string>` | 弹对话框选要上传的本地文件，取消返回空串 |
 | `PickSaveTarget` | `(name: string) => Promise<string>` | 弹对话框选下载落点，取消返回空串 |
 | `Upload` | `(local, remoteDir, overwrite) => Promise<UploadResult>` | 上传；`overwrite` 为假且同名文件已存在时只回报要确认 |
 | `Download` | `(remotePath, localPath) => Promise<void>` | 下载 |
-| `Delete` | `(remotePath: string) => Promise<void>` | 删一个远端文件，不递归 |
 
 `Device`：`{ host, port, user, password, keyPath }`。`Status`：`{ connected, addr, error }`，
 `error` 是被动断开的原因。`Command`：`{ id, name, command }`。
 `CommandList`：`{ commands, path, warning }`，`path` 是现场清单的完整路径。
 `CommandFileResult`：`{ list, path, canceled }`。
-`CommandResult`：`{ command, stdout, stderr, success, error }`。
 `Entry`：`{ name, size, isDir }`。`UploadResult`：`{ remotePath, needsConfirm }`。
 
 ## 实现要点
@@ -156,7 +148,7 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
   落盘是先写同目录临时文件再改名：写一半挂掉的话，整个清单都会读不出来。
 - **出厂默认与现场覆盖**。和 remote 的点位文件同一套取舍：exe 旁边有合法的
   `board-commands.json` 就用它，没有或坏掉就用编译进产物的 `commands.json`。
-  「恢复默认」只删现场文件。导入导出弹系统对话框，校验不过不写盘。
+  退回出厂默认就是删掉现场文件。导入导出弹系统对话框，校验不过不写盘。
 - **状态栏恒占一行**。有状态槽的界面各留一条，没消息时也留着位置。让它按有没有消息进出 DOM 的话，
   每操作一下下面整片内容都会跟着上下跳一次，手指还停在原处按钮已经移开了。
   本页的连接状态槽随连接区一起收进了顶栏，只剩配置告警在有内容时占一行。

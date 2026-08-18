@@ -447,27 +447,6 @@ func TestLoadSettingsHandlesDuplicateTabID(t *testing.T) {
 	}
 }
 
-func TestValidateDeviceRangesMatchLoading(t *testing.T) {
-	if _, err := validateDevice(DeviceSettings{
-		Device: Device{Host: "10.0.0.1", Port: 70000}}); err == nil {
-		t.Fatal("端口越界应当被拒")
-	}
-	if _, err := validateDevice(DeviceSettings{
-		Device: Device{Host: "10.0.0.1"}, RequestTimeoutSeconds: 9999}); err == nil {
-		t.Fatal("请求超时越界应当被拒")
-	}
-
-	// 缺省值该被补齐，界面上留空不等于 0。
-	got, err := validateDevice(DeviceSettings{Device: Device{Host: "10.0.0.1"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Device.Port != defaultPort || got.Device.Path != "/" ||
-		got.RefreshIntervalMs != defaultRefreshMs {
-		t.Fatalf("缺省没补齐：%+v", got)
-	}
-}
-
 func TestValidatePanelUsesLoadingRules(t *testing.T) {
 	bad := Tab{Kind: kindRegister, Groups: []Group{{Points: []Point{{Type: "DO", Port: 1}}}}}
 	if _, _, err := validatePanel(bad); err == nil {

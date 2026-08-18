@@ -200,7 +200,7 @@
 | `requestTimeoutSeconds` | 单次请求等响应的上限，1–120，省略按 `8` |
 | `refreshIntervalMs` | IO / 寄存器标签页自动刷新的间隔，200–60000，省略按 `1000`。界面上那句「每 N 秒自动刷新」跟着它变 |
 
-这几个范围界面上保存时用的是同一套校验，越界会被拒，盘上那份不变。
+这几个范围在加载时校验，越界会让这份现场配置被判不可用，退回出厂默认并显示告警。
 
 `io.json` / `register.json` 字段：
 
@@ -234,9 +234,7 @@
 | 方法 | 签名 | 说明 |
 | --- | --- | --- |
 | `Config` | `() => Promise<Settings>` | 连接默认值 + 标签页定义 + 配置目录 + 配置告警 |
-| `SaveDevice` | `(in: DeviceSettings) => Promise<Settings>` | 校验并落盘连接参数（端口、路径、超时），回整份配置；不碰当前连接，也不写共享配置的地址 |
 | `SavePanel` | `(tab: Tab) => Promise<Settings>` | 校验并落盘整个点位面板，回整份配置 |
-| `ResetDevice` | `() => Promise<Settings>` | 删掉现场那份连接参数，退回出厂默认 |
 | `ResetPanel` | `(kind: string) => Promise<Settings>` | 删掉现场那份（`io` / `register`），退回出厂默认 |
 | `ExportPanel` | `(kind: string) => Promise<string>` | 弹出保存框，把当前这一页写成 JSON；取消返回空字符串 |
 | `ImportPanel` | `(kind: string) => Promise<PanelFileResult>` | 弹出打开框，校验后整份替换这一页；取消时 `canceled` 为真、配置不动 |

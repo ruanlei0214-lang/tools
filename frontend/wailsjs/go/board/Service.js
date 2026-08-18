@@ -14,10 +14,6 @@ export function Connect(arg1) {
   return window['go']['board']['Service']['Connect'](arg1);
 }
 
-export function Delete(arg1) {
-  return window['go']['board']['Service']['Delete'](arg1);
-}
-
 export function Disconnect() {
   return window['go']['board']['Service']['Disconnect']();
 }
@@ -42,10 +38,6 @@ export function ListDir(arg1) {
   return window['go']['board']['Service']['ListDir'](arg1);
 }
 
-export function PickKeyFile() {
-  return window['go']['board']['Service']['PickKeyFile']();
-}
-
 export function PickLocalFile() {
   return window['go']['board']['Service']['PickLocalFile']();
 }
@@ -66,24 +58,12 @@ export function ReadTerminal(arg1) {
   return window['go']['board']['Service']['ReadTerminal'](arg1);
 }
 
-export function ResetCommands() {
-  return window['go']['board']['Service']['ResetCommands']();
-}
-
-export function RunCommand(arg1) {
-  return window['go']['board']['Service']['RunCommand'](arg1);
-}
-
 export function RunCommandInTerminal(arg1, arg2) {
   return window['go']['board']['Service']['RunCommandInTerminal'](arg1, arg2);
 }
 
 export function SaveCommands(arg1) {
   return window['go']['board']['Service']['SaveCommands'](arg1);
-}
-
-export function SaveDevice(arg1) {
-  return window['go']['board']['Service']['SaveDevice'](arg1);
 }
 
 export function StartTerminal(arg1) {

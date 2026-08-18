@@ -9,9 +9,10 @@ context: |
   后端在 internal/modules/<name>/，前端在 frontend/src/modules/<name>/，
   每个功能是一个独立模块，自带前后端两半。
 
-  硬性约束（详见 openspec/specs/module-independence/spec.md）：
+  硬性约束（详见 openspec/specs/module-independence/spec.md 与 openspec/specs/performance/spec.md）：
   - 模块之间不允许互相引用，也不允许有任何交互。
   - 代码要求精简，不做超出当前需求的抽象。
   - 修改代码要求尽量少的改动，不顺手重构无关代码。
+  - 所有修改性能优先：后台活动随模块停用而暂停，缓冲区必须有上限，连接复用不多开。
 
   命令：wails dev（开发）、wails build（构建）、go test ./...（测试）。

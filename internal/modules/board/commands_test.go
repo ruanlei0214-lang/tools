@@ -2,7 +2,6 @@ package board
 
 import (
 	"embedtools/internal/module"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +79,7 @@ func TestSaveCommandsAssignsIDs(t *testing.T) {
 }
 
 // 清单被人工编辑过就可能出现重复编号，重复的那个要重新发一个——
-// 否则 RunCommand 按编号找会命中错的那条。
+// 否则按编号取命令执行会命中错的那条。
 func TestSaveCommandsFixesDuplicateIDs(t *testing.T) {
 	isolateConfigDir(t)
 
@@ -197,28 +196,6 @@ func TestSaveCommandsLeavesNoTempFile(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Errorf("临时文件还在：%v", err)
-	}
-}
-
-func TestResetCommandsGoesBackToFactory(t *testing.T) {
-	isolateConfigDir(t)
-	s := &Service{}
-	if _, err := s.SaveCommands([]Command{{Name: "现场", Command: "echo 1"}}); err != nil {
-		t.Fatal(err)
-	}
-	back, err := s.ResetCommands()
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := parseCommands(commandsJSON, "commands.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(back.Commands) != len(factory) || back.Commands[0].Name != factory[0].Name {
-		t.Fatalf("恢复默认应当是出厂清单：%+v", back.Commands)
-	}
-	if _, _, rerr := readCommandsStore(); !errors.Is(rerr, errNoOverride) {
-		t.Fatalf("现场文件应当被删掉：%v", rerr)
 	}
 }
 

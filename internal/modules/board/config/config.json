@@ -6,6 +6,5 @@
     "password": ""
   },
   "connectTimeoutSeconds": 8,
-  "commandTimeoutSeconds": 30,
   "defaultPath": "/opt"
 }

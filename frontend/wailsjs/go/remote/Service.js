@@ -38,16 +38,8 @@ export function PulseRegister(arg1, arg2, arg3, arg4) {
   return window['go']['remote']['Service']['PulseRegister'](arg1, arg2, arg3, arg4);
 }
 
-export function ResetDevice() {
-  return window['go']['remote']['Service']['ResetDevice']();
-}
-
 export function ResetPanel(arg1) {
   return window['go']['remote']['Service']['ResetPanel'](arg1);
-}
-
-export function SaveDevice(arg1) {
-  return window['go']['remote']['Service']['SaveDevice'](arg1);
 }
 
 export function SavePanel(arg1) {

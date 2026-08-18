@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { nextTick, onBeforeUnmount, ref } from 'vue'
 import { ReadPing, StartPing, StopPing } from '../../../wailsjs/go/ping/Service'
+import { useActivePolling } from '../../shell/polling'
 
 // 长 ping：开始后后端每秒一个包，这里半秒取一次日志。日志逐行渲染成 div，
 // 追加行不动已有节点，正在进行的文字选择不会被新日志打断（终端踩过这个坑）。
@@ -11,7 +12,17 @@ const logEl = ref<HTMLElement>()
 
 // maxLines 是前端显示的上限，超了从头上丢。一千行约等于 16 分钟的日志。
 const maxLines = 1000
-let timer: number | undefined
+// 上一轮还没回来就跳过这一轮，别让请求越堆越多。
+let polling = false
+
+// 没在跑就不发 IPC，本地判一下就行；切到别的模块时轮询整体暂停，
+// 日志攒在后端缓冲区（有上限），切回来补一轮取走。
+useActivePolling(
+  () => {
+    if (running.value) void poll()
+  },
+  () => 500,
+)
 
 async function start() {
   const target = host.value.trim()
@@ -20,7 +31,7 @@ async function start() {
     await StartPing(target)
     lines.value = []
     running.value = true
-    poll()
+    await poll()
   } catch (e) {
     lines.value = [String(e)]
   }
@@ -32,6 +43,8 @@ async function stop() {
 }
 
 async function poll() {
+  if (polling) return
+  polling = true
   try {
     const r = await ReadPing()
     if (r.lines?.length) {
@@ -42,14 +55,12 @@ async function poll() {
     running.value = r.running
   } catch {
     // 取日志失败不致命，下一轮再试。
-  }
-  if (running.value) {
-    timer = window.setTimeout(poll, 500)
+  } finally {
+    polling = false
   }
 }
 
 onBeforeUnmount(() => {
-  window.clearTimeout(timer)
   // 模块切换走 keep-alive，是停用不是卸载，不会进这里——长 ping 在后台照跑，
   // 日志照攒（缓冲区有上限），切回来接着看。这里只管整个视图被销毁的时候
   // （比如程序退出），把后端的长 ping 收掉，别让它对着没人看的缓冲区跑。

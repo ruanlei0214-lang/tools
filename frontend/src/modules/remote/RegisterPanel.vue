@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import {
   GetRegisters,
   PulseRegister,
@@ -7,6 +7,7 @@ import {
   ToggleRegister,
 } from '../../../wailsjs/go/remote/Service'
 import type { remote } from '../../../wailsjs/go/models'
+import { useActivePolling } from '../../shell/polling'
 import PointEditor from './PointEditor.vue'
 import { usePanelEdit } from './usePanelEdit'
 
@@ -75,28 +76,18 @@ const intervalText = computed(() =>
   props.intervalMs % 1000 === 0 ? `${props.intervalMs / 1000} 秒` : `${props.intervalMs} 毫秒`,
 )
 
-let timer: number | undefined
+// 上一轮还没回来就跳过这一轮：控制器慢的时候不能让请求越堆越多。
 let polling = false
 
-// 间隔在界面上改完要立刻按新值轮询，所以定时器跟着它重建：
-// setInterval 起好之后改不了周期，只能清掉重起。
-function restartTimer() {
-  if (timer !== undefined) window.clearInterval(timer)
-  timer = window.setInterval(() => {
+// 切到别的模块时暂停刷新，切回来立即补一轮。间隔在界面上改完按新值重建。
+const { restart: restartPolling } = useActivePolling(
+  () => {
     if (autoRefresh.value) void refresh(true)
-  }, props.intervalMs)
-}
+  },
+  () => props.intervalMs,
+)
 
-watch(() => props.intervalMs, restartTimer)
-
-onMounted(() => {
-  void refresh()
-  restartTimer()
-})
-
-onUnmounted(() => {
-  if (timer !== undefined) window.clearInterval(timer)
-})
+watch(() => props.intervalMs, restartPolling)
 
 watch(
   () => props.connected,

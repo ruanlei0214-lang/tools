@@ -12,6 +12,7 @@ import {
   WriteTerminal,
 } from '../../../wailsjs/go/board/Service'
 import type { board } from '../../../wailsjs/go/models'
+import { useActivePolling } from '../../shell/polling'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{ connected: boolean }>()
@@ -28,7 +29,6 @@ const terminalReady = ref(false)
 const terminalOutput = ref('')
 const terminalScreen = ref<HTMLElement | null>(null)
 const terminalCapture = ref<HTMLTextAreaElement | null>(null)
-let terminalTimer: number | undefined
 let terminalReading = false
 let terminalStart: Promise<void> | null = null
 let writeChain = Promise.resolve()
@@ -61,15 +61,17 @@ onMounted(async () => {
   }
   window.addEventListener('mouseup', onSelectEnd)
   window.addEventListener('keydown', onWindowKey)
-  terminalTimer = window.setInterval(() => {
-    void pullTerminal()
-  }, 150)
 })
+
+// 切到别的模块时轮询暂停；这期间设备上的输出攒在后端缓冲区（有 1MB 上限），
+// 切回来立即补一轮取走。
+useActivePolling(() => {
+  void pullTerminal()
+}, () => 150)
 
 onUnmounted(() => {
   window.removeEventListener('mouseup', onSelectEnd)
   window.removeEventListener('keydown', onWindowKey)
-  if (terminalTimer !== undefined) window.clearInterval(terminalTimer)
   void CloseTerminal()
 })
 

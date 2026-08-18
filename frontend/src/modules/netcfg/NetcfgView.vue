@@ -78,6 +78,13 @@ const canApplyWifi = computed(() => {
   return bandChoice.value === '2.4G' ? n >= 1 && n <= 13 : channels5G.includes(n)
 })
 
+// DFS 信道（52-64、100-144）单独点名：它不是"不在列表里"，是雷达避让会让热点长时间不可用。
+const dfsChannel = computed(() => {
+  const n = Number(wifiChannel.value)
+  if (!Number.isInteger(n) || bandChoice.value !== '5G') return false
+  return (n >= 52 && n <= 64) || (n >= 100 && n <= 144)
+})
+
 // 只有持久化网口改完能留住，其他网口重启就没了。这两种结果差别太大，
 // 不能用同一句话糊过去。比的是系统网口名，面板名和它对不上。
 const willPersist = computed(
@@ -266,7 +273,10 @@ function restore() {
             {{ busy === 'wifi' ? '应用中…' : '应用并重启' }}
           </button>
         </div>
-        <p class="chan-hint">{{ channelHint }}</p>
+        <p class="chan-hint" :class="{ err: dfsChannel }">
+          <template v-if="dfsChannel">信道 {{ wifiChannel }} 是 DFS 信道，雷达避让会让热点长时间不可用，禁止使用</template>
+          <template v-else>{{ channelHint }}</template>
+        </p>
       </div>
     </section>
 
@@ -439,6 +449,10 @@ function restore() {
   margin: 6px 0 0;
   font-size: 11px;
   color: var(--text-dim);
+}
+
+.chan-hint.err {
+  color: var(--err);
 }
 
 .wifi-ssid {

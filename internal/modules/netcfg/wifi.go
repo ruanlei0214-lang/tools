@@ -65,12 +65,21 @@ func validateBand(band string) error {
 	return fmt.Errorf("频段只能是 %s，当前是 %q", bandHint, band)
 }
 
+// isDFSChannel 判断 5G DFS 信道（52-64、100-144）。DFS 要雷达避让，
+// 检测到雷达热点得静默很久甚至换频，现场等不起，所以不让用。
+func isDFSChannel(ch int) bool {
+	return ch >= 52 && ch <= 64 || ch >= 100 && ch <= 144
+}
+
 func validateChannel(band string, ch int) error {
 	if band == band24G {
 		if ch >= 1 && ch <= 13 {
 			return nil
 		}
 		return fmt.Errorf("2.4G 信道只能是 %s，当前是 %d", wifi24GChannelHint, ch)
+	}
+	if isDFSChannel(ch) {
+		return fmt.Errorf("信道 %d 是 DFS 信道，雷达避让会让热点长时间不可用，禁止使用", ch)
 	}
 	switch ch {
 	case 36, 40, 44, 48, 149, 153, 157, 161, 165:

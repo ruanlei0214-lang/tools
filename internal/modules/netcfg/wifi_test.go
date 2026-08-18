@@ -45,6 +45,14 @@ func TestValidateChannel(t *testing.T) {
 	if err := validateChannel(band5G, 52); err == nil {
 		t.Fatal("DFS 信道必须拒绝")
 	}
+	if got := validateChannel(band5G, 52); got == nil || !strings.Contains(got.Error(), "DFS") {
+		t.Fatalf("DFS 信道的报错必须点名 DFS，实际 %v", got)
+	}
+	for _, ch := range []int{64, 100, 140, 144} {
+		if err := validateChannel(band5G, ch); err == nil {
+			t.Fatalf("DFS 信道 %d 必须拒绝", ch)
+		}
+	}
 	if err := validateChannel(band5G, 0); err == nil {
 		t.Fatal("0 必须拒绝")
 	}

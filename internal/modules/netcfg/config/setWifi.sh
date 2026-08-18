@@ -61,6 +61,31 @@ pidof hostapd >/dev/null || { echo "error: hostapd not running"; exit 1; }
 if [ -n "$br0IP" ]; then
     # 进 br0，地址交给现场 DHCP
     brctl addif br0 wlan0 2>/dev/null || true
+
+    # 拔线兜底：lan1 没载波时现场 DHCP 够不着，WiFi 直连的电脑拿不到地址。
+    # 这时在 br0 上临时起 udhcpd 分一小段地址；插回网线立即停掉，不和现场 DHCP 冲突。
+    if ! kill -0 "$(cat /var/run/lan-dhcp-watchdog.pid 2>/dev/null)" 2>/dev/null; then
+        (
+            echo $$ > /var/run/lan-dhcp-watchdog.pid
+            seg=$(echo "$br0IP" | cut -d. -f1-3)
+            cat > /tmp/udhcp_br0.conf << EOF
+start           $seg.200
+end             $seg.220
+interface       br0
+opt     router  $br0IP
+option  subnet  255.255.255.0
+option  lease   600
+EOF
+            while true; do
+                if [ "$(cat /sys/class/net/lan1/carrier 2>/dev/null)" = "0" ]; then
+                    pidof udhcpd >/dev/null || udhcpd /tmp/udhcp_br0.conf
+                else
+                    killall udhcpd 2>/dev/null
+                fi
+                sleep 3
+            done
+        ) &
+    fi
 else
     # 无 br0：回退独立网段，热点仍可连
     ip addr flush dev wlan0 2>/dev/null

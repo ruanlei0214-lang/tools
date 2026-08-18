@@ -4,7 +4,7 @@
     "port": 9000,
     "path": "/"
   },
-  "connectTimeoutSeconds": 5,
+  "connectTimeoutSeconds": 3,
   "requestTimeoutSeconds": 8,
   "refreshIntervalMs": 1000
 }

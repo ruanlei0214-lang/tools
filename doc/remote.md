@@ -1,6 +1,6 @@
 # 远程控制（remote）
 
-当前版本 **V1.3.12**，声明在 `frontend/src/modules/remote/module.ts`。
+当前版本 **V1.3.13**，声明在 `frontend/src/modules/remote/module.ts`。
 
 ## 做什么
 
@@ -141,7 +141,7 @@
 ```json
 {
   "device": { "host": "192.168.1.136", "port": 9000, "path": "/" },
-  "connectTimeoutSeconds": 5,
+  "connectTimeoutSeconds": 3,
   "requestTimeoutSeconds": 8,
   "refreshIntervalMs": 1000
 }
@@ -196,7 +196,7 @@
 
 | 字段 | 说明 |
 | --- | --- |
-| `connectTimeoutSeconds` | 建连超时，1–60，省略按 `5` |
+| `connectTimeoutSeconds` | 建连超时，1–60，省略按 `3` |
 | `requestTimeoutSeconds` | 单次请求等响应的上限，1–120，省略按 `8` |
 | `refreshIntervalMs` | IO / 寄存器标签页自动刷新的间隔，200–60000，省略按 `1000`。界面上那句「每 N 秒自动刷新」跟着它变 |
 

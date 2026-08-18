@@ -23,7 +23,7 @@ const (
 	defaultPort = 22
 	// defaultConnectTimeout 与 maxConnectTimeout：连接期间按钮是禁用的且没有取消入口，
 	// 填个 3600 等于把页面冻住一小时。
-	defaultConnectTimeout = 8
+	defaultConnectTimeout = 3
 	maxConnectTimeout     = 120
 	defaultRemotePath     = "/opt"
 )

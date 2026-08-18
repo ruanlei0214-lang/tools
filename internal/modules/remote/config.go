@@ -30,7 +30,7 @@ var registerJSON []byte
 
 const (
 	defaultPort           = 9001
-	defaultConnectTimeout = 5
+	defaultConnectTimeout = 3
 	maxConnectTimeout     = 60
 	defaultRequestTimeout = 8
 	maxRequestTimeout     = 120

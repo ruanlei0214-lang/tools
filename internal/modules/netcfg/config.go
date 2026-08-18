@@ -28,7 +28,7 @@ var setWifiScript []byte
 // defaultConnectTimeout 是 connectTimeoutSeconds 省略时用的值，也是兜底配置里的值。
 // 两处共用一个常量，避免出现 0 —— ssh.ClientConfig.Timeout 为 0 表示永不超时，
 // 那会让界面卡在「连接中…」再也回不来。
-const defaultConnectTimeout = 8
+const defaultConnectTimeout = 3
 
 // maxConnectTimeout 拦住离谱的值。连接期间按钮是禁用的且没有取消入口，
 // 填个 3600 等于把页面冻住一小时。

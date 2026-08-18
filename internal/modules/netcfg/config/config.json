@@ -7,7 +7,7 @@
   },
   "mask": "255.255.255.0",
   "gateway": "",
-  "connectTimeoutSeconds": 2,
+  "connectTimeoutSeconds": 3,
   "persistIface": "br0",
   "restoreFile": "/opt/runtime/ip"
 }

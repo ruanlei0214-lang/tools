@@ -5,6 +5,6 @@
     "user": "root",
     "password": ""
   },
-  "connectTimeoutSeconds": 8,
+  "connectTimeoutSeconds": 3,
   "defaultPath": "/opt"
 }

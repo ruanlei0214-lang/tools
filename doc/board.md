@@ -1,6 +1,6 @@
 # 终端（board）
 
-当前版本 **V1.2.3**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
+当前版本 **V1.2.4**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
 
 ## 做什么
 
@@ -36,7 +36,7 @@
 ```json
 {
   "device": { "host": "192.168.1.136", "port": 22, "user": "root", "password": "" },
-  "connectTimeoutSeconds": 8,
+  "connectTimeoutSeconds": 3,
   "defaultPath": "/opt"
 }
 ```
@@ -44,7 +44,7 @@
 | 字段 | 说明 |
 | --- | --- |
 | `device` | `host` / `user` / `password` 是没有共享配置时的出厂值；`port` 连的时候用，不在界面上。`password` 留空就是空密码 |
-| `connectTimeoutSeconds` | 建连超时，1–120，省略按 `8`。它覆盖 TCP 建连 + SSH 握手 + 认证三步的总时长 |
+| `connectTimeoutSeconds` | 建连超时，1–120，省略按 `3`。它覆盖 TCP 建连 + SSH 握手 + 认证三步的总时长 |
 | `defaultPath` | 文件标签页打开时填在路径框里的远端目录，省略按 `/opt` |
 
 **共享配置优先。** `Config()` 返回的地址、用户名、密码、密钥路径，优先用

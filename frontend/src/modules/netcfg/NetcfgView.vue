@@ -19,6 +19,7 @@ const form = reactive({ ip: '', mask: '', gateway: '' })
 const defaults = reactive({ mask: '', persistIface: '' })
 const wifiSSID = ref('')
 const wifiPassword = ref('')
+const showPassword = ref(false)
 const wifiChannel = ref('')
 // wifiBand 是设备当前频段（只用于展示），bandChoice 是下拉框里要切到的频段。
 const wifiBand = ref<'5G' | '2.4G'>('5G')
@@ -252,14 +253,32 @@ function restore() {
           </div>
           <div class="field pass-field">
             <label for="wpass">密码</label>
-            <input
-              id="wpass"
-              v-model="wifiPassword"
-              type="password"
-              autocomplete="off"
-              title="8-63 位"
-              placeholder="8-63 位"
-            />
+            <div class="pass-wrap">
+              <input
+                id="wpass"
+                v-model="wifiPassword"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="off"
+                title="8-63 位"
+                placeholder="8-63 位"
+              />
+              <button
+                type="button"
+                class="eye"
+                :title="showPassword ? '隐藏密码' : '显示密码'"
+                @click="showPassword = !showPassword"
+              >
+                <svg v-if="showPassword" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z" />
+                  <circle cx="8" cy="8" r="2" />
+                </svg>
+                <svg v-else viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z" />
+                  <circle cx="8" cy="8" r="2" />
+                  <path d="M2 14 14 2" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="field band-field">
             <label for="band">频段（当前 {{ wifiBand }}）</label>
@@ -461,6 +480,38 @@ function restore() {
 
 .pass-field {
   flex: 0 1 150px;
+}
+
+.pass-wrap {
+  position: relative;
+}
+
+.pass-wrap input {
+  width: 100%;
+  padding-right: 28px;
+}
+
+.eye {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.eye:hover {
+  color: var(--text);
+  background: var(--bg);
 }
 
 .chan-field {

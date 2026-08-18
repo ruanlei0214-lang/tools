@@ -303,11 +303,11 @@ export namespace netcfg {
 	    password: string;
 	    channel: number;
 	    band: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WifiAp(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ssid = source["ssid"];

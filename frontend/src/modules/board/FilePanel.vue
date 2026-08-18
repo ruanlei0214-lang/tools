@@ -212,9 +212,11 @@ function remoteOf(e: board.Entry) {
   return joinPath(listedPath.value, e.name)
 }
 
+// 终端分屏后写固定进第一格（t1）：它关不掉、始终存在，上传后的解压之类的
+// 辅助命令落在那里，和用户自己敲命令的当前格子互不干扰。
 async function sendShell(cmd: string) {
-  await StartTerminal()
-  await WriteTerminal(cmd.endsWith('\n') ? cmd : `${cmd}\n`)
+  await StartTerminal('t1')
+  await WriteTerminal('t1', cmd.endsWith('\n') ? cmd : `${cmd}\n`)
 }
 
 function sleep(ms: number) {

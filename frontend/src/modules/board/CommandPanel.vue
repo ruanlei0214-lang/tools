@@ -1,19 +1,15 @@
 <script lang="ts" setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowReactive } from 'vue'
 import {
-  CloseTerminal,
   ExportCommands,
   ImportCommands,
   ListCommands,
-  ReadTerminal,
   RunCommandInTerminal,
   SaveCommands,
-  StartTerminal,
-  WriteTerminal,
 } from '../../../wailsjs/go/board/Service'
 import type { board } from '../../../wailsjs/go/models'
-import { useActivePolling } from '../../shell/polling'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
+import TerminalPane from './TerminalPane.vue'
 
 const props = defineProps<{ connected: boolean }>()
 const emit = defineEmits<{
@@ -25,19 +21,137 @@ const listWarning = ref('')
 const busy = ref('')
 // title 是悬停提示：导出导入的结果文案只显示文件名，完整路径挂在 title 上。
 const banner = ref<{ kind: 'ok' | 'err' | 'info'; text: string; title?: string } | null>(null)
-const terminalReady = ref(false)
-const terminalOutput = ref('')
-const terminalScreen = ref<HTMLElement | null>(null)
-const terminalCapture = ref<HTMLTextAreaElement | null>(null)
-let terminalReading = false
-let terminalStart: Promise<void> | null = null
-let writeChain = Promise.resolve()
-let composing = false
-let skipNextKey = false
-let escapeHold = ''
-// 选中文字时不能改 pre 的内容，否则选择会被冲掉。输出先攒着，松开再贴上去。
-let heldOutput = ''
-let selecting = false
+
+// ---- 终端分屏 ----
+// 最多四格。第二格由用户选左右还是上下；第三、四格固定四宫格
+// （三格时第三格独占底行）。格子大小拖分隔条调，比例存 colRatio/rowRatio。
+interface PaneApi {
+  ready: boolean
+  ensure: () => Promise<void>
+  reopen: () => Promise<void>
+  send: (text: string) => void
+  clear: () => void
+  focus: () => void
+}
+
+const panes = ref<string[]>(['t1'])
+let paneSeq = 1
+const activeId = ref('t1')
+const splitDir = ref<'cols' | 'rows'>('cols')
+const colRatio = ref(0.5)
+const rowRatio = ref(0.5)
+const dragging = ref(false)
+const paneArea = ref<HTMLElement | null>(null)
+const paneRefs = shallowReactive(new Map<string, PaneApi>())
+
+const layout = computed<'single' | 'cols' | 'rows' | 'grid'>(() => {
+  if (panes.value.length === 1) return 'single'
+  if (panes.value.length === 2) return splitDir.value
+  return 'grid'
+})
+
+const activePane = computed(() => paneRefs.get(activeId.value))
+const activeReady = computed(() => activePane.value?.ready ?? false)
+const showVDivider = computed(() => layout.value === 'cols' || layout.value === 'grid')
+const showHDivider = computed(() => layout.value === 'rows' || layout.value === 'grid')
+
+// 格子摆进带分隔条轨道的 grid：第 2 列/第 2 行是 6px 的拖拽缝。
+const gridStyle = computed(() => {
+  const cols = `${colRatio.value}fr 6px ${1 - colRatio.value}fr`
+  const rows = `${rowRatio.value}fr 6px ${1 - rowRatio.value}fr`
+  switch (layout.value) {
+    case 'cols':
+      return { gridTemplateColumns: cols, gridTemplateRows: '1fr' }
+    case 'rows':
+      return { gridTemplateColumns: '1fr', gridTemplateRows: rows }
+    case 'grid':
+      return { gridTemplateColumns: cols, gridTemplateRows: rows }
+    default:
+      return { gridTemplateColumns: '1fr', gridTemplateRows: '1fr' }
+  }
+})
+
+function paneStyle(i: number) {
+  const n = panes.value.length
+  if (n === 1) return { gridColumn: '1', gridRow: '1' }
+  if (n === 2) {
+    return splitDir.value === 'cols'
+      ? { gridColumn: i === 0 ? '1' : '3', gridRow: '1' }
+      : { gridColumn: '1', gridRow: i === 0 ? '1' : '3' }
+  }
+  const spots = [
+    { gridColumn: '1', gridRow: '1' },
+    { gridColumn: '3', gridRow: '1' },
+    n === 3 ? { gridColumn: '1 / -1', gridRow: '3' } : { gridColumn: '1', gridRow: '3' },
+    { gridColumn: '3', gridRow: '3' },
+  ]
+  return spots[i]
+}
+
+const vDividerStyle = computed(() => ({
+  gridColumn: '2',
+  gridRow: layout.value === 'grid' && panes.value.length > 3 ? '1 / -1' : '1',
+}))
+const hDividerStyle = computed(() => ({ gridColumn: '1 / -1', gridRow: '2' }))
+
+function paneRefSetter(id: string) {
+  return (el: unknown) => {
+    if (el) paneRefs.set(id, el as PaneApi)
+    else paneRefs.delete(id)
+  }
+}
+
+function addPane(dir: 'cols' | 'rows') {
+  if (panes.value.length >= 4) return
+  if (panes.value.length === 1) splitDir.value = dir
+  const id = `t${++paneSeq}`
+  panes.value.push(id)
+  activeId.value = id
+}
+
+function closePane(id: string) {
+  if (panes.value.length <= 1) return
+  const at = panes.value.indexOf(id)
+  if (at < 0) return
+  // 后端会话由 TerminalPane 的卸载钩子关掉，这里只管布局。
+  panes.value.splice(at, 1)
+  if (activeId.value === id) activeId.value = panes.value[panes.value.length - 1]
+}
+
+function startDrag(which: 'col' | 'row', e: MouseEvent) {
+  const area = paneArea.value
+  if (!area) return
+  dragging.value = true
+  const rect = area.getBoundingClientRect()
+  const onMove = (ev: MouseEvent) => {
+    const ratio =
+      which === 'col' ? (ev.clientX - rect.left) / rect.width : (ev.clientY - rect.top) / rect.height
+    // 钳在 15%~85%：再小终端就剩不下几列字，等于变相关屏却没有关屏的入口。
+    const clamped = Math.min(Math.max(ratio, 0.15), 0.85)
+    if (which === 'col') colRatio.value = clamped
+    else rowRatio.value = clamped
+  }
+  const onUp = () => {
+    dragging.value = false
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+function sendCtrlC() {
+  const pane = activePane.value
+  pane?.send('\u0003')
+  pane?.focus()
+}
+
+function reopenTerminal() {
+  return act('terminal-reopen', async () => {
+    await activePane.value?.reopen()
+    banner.value = { kind: 'info', text: '终端已重新打开' }
+  })
+}
 
 // 编辑中的那一条。id 为空表示新增。
 const draft = reactive({ id: '', name: '', command: '' })
@@ -59,41 +173,6 @@ onMounted(async () => {
   } catch (e) {
     listWarning.value = `读取按钮清单失败：${String(e)}`
   }
-  window.addEventListener('mouseup', onSelectEnd)
-  window.addEventListener('keydown', onWindowKey)
-})
-
-// 切到别的模块时轮询暂停；这期间设备上的输出攒在后端缓冲区（有 1MB 上限），
-// 切回来立即补一轮取走。
-useActivePolling(() => {
-  void pullTerminal()
-}, () => 150)
-
-onUnmounted(() => {
-  window.removeEventListener('mouseup', onSelectEnd)
-  window.removeEventListener('keydown', onWindowKey)
-  void CloseTerminal()
-})
-
-watch(
-  () => props.connected,
-  (connected) => {
-    if (connected) {
-      void ensureTerminal().catch((e) => {
-        banner.value = { kind: 'err', text: String(e) }
-      })
-    } else {
-      terminalReady.value = false
-      escapeHold = ''
-    }
-  },
-  { immediate: true },
-)
-
-watch(terminalReady, (ready) => {
-  if (ready) {
-    void nextTick(() => terminalCapture.value?.focus())
-  }
 })
 
 async function act(op: string, fn: () => Promise<void>) {
@@ -110,234 +189,11 @@ async function act(op: string, fn: () => Promise<void>) {
 
 function run(c: board.Command) {
   return act(`run-${c.id}`, async () => {
-    await ensureTerminal()
-    await RunCommandInTerminal(c.id)
-    await pullTerminal()
-    terminalCapture.value?.focus()
-  })
-}
-
-function ensureTerminal(): Promise<void> {
-  if (terminalReady.value) return Promise.resolve()
-  if (terminalStart) return terminalStart
-
-  terminalStart = (async () => {
-    if (!props.connected) throw new Error('尚未连接主板')
-    await StartTerminal()
-    terminalReady.value = true
-    await pullTerminal()
-  })().finally(() => {
-    terminalStart = null
-  })
-  return terminalStart
-}
-
-function terminalHasSelection() {
-  const el = terminalScreen.value
-  const sel = window.getSelection()
-  if (!el || !sel || sel.isCollapsed || !sel.rangeCount) return false
-  const node = sel.anchorNode
-  return !!(node && el.contains(node))
-}
-
-function shouldHoldOutput() {
-  return selecting || terminalHasSelection()
-}
-
-function onSelectStart() {
-  selecting = true
-}
-
-function onSelectEnd() {
-  selecting = false
-}
-
-async function pullTerminal() {
-  if (!terminalReady.value || terminalReading) return
-  terminalReading = true
-  try {
-    const chunk = await ReadTerminal()
-    if (shouldHoldOutput()) {
-      if (chunk) heldOutput += chunk
-      return
-    }
-    const pending = heldOutput + (chunk || '')
-    heldOutput = ''
-    if (!pending) return
-    appendTerminal(pending)
-    if (pending.includes('[终端已关闭')) {
-      terminalReady.value = false
-    }
-    await nextTick()
-    if (terminalScreen.value) {
-      terminalScreen.value.scrollTop = terminalScreen.value.scrollHeight
-    }
-  } catch (e) {
-    terminalReady.value = false
-    banner.value = { kind: 'err', text: `读取终端失败：${String(e)}` }
-    emit('refresh-status')
-  } finally {
-    terminalReading = false
-  }
-}
-
-function appendTerminal(chunk: string) {
-  const raw = holdIncompleteEscape(escapeHold + chunk)
-  const clean = sanitizeTerminal(raw).replace(/\r\n/g, '\n')
-  let s = terminalOutput.value
-  for (const ch of clean) {
-    if (ch === '\b' || ch === '\x7f') {
-      if (s.length && !s.endsWith('\n')) s = s.slice(0, -1)
-    } else if (ch === '\r') {
-      const i = s.lastIndexOf('\n')
-      s = i >= 0 ? s.slice(0, i + 1) : ''
-    } else {
-      s += ch
-    }
-  }
-  terminalOutput.value = s.slice(-200_000)
-}
-
-// Tab 补全常夹着响铃、半截 CSI、8 位 C1。漏掉就会在 cd /opt/ 后面冒出一个问号方块。
-function sanitizeTerminal(s: string) {
-  return s
-    .replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
-    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\u001B[@-Z\\-_]/g, '')
-    .replace(/[\u0000-\u0007\u000B\u000C\u000E-\u001A\u001C-\u001F\u0080-\u009F\uFFFD]/g, '')
-}
-
-function holdIncompleteEscape(s: string) {
-  const esc = s.lastIndexOf('\u001B')
-  if (esc < 0) {
-    escapeHold = ''
-    return s
-  }
-  const tail = s.slice(esc)
-  if (/^\u001B(?:$|\[(?:[0-?]*[ -/]*)?|\][^\u0007\u001B]*)$/.test(tail)) {
-    escapeHold = tail
-    return s.slice(0, esc)
-  }
-  escapeHold = ''
-  return s
-}
-
-function sendKeys(text: string) {
-  if (!props.connected || !text) return
-  writeChain = writeChain
-    .then(async () => {
-      await ensureTerminal()
-      await WriteTerminal(text)
-    })
-    .catch((e) => {
-      banner.value = { kind: 'err', text: String(e) }
-      emit('refresh-status')
-    })
-}
-
-const specialKeys: Record<string, string> = {
-  Enter: '\n',
-  Backspace: '\x7f',
-  Tab: '\t',
-  Escape: '\x1b',
-  Delete: '\x1b[3~',
-  ArrowUp: '\x1b[A',
-  ArrowDown: '\x1b[B',
-  ArrowRight: '\x1b[C',
-  ArrowLeft: '\x1b[D',
-  Home: '\x1b[H',
-  End: '\x1b[F',
-}
-
-function focusCapture() {
-  // 点一下是为了接着打字；已经划了字就别抢焦点，否则选区会被清掉。
-  if (selecting || terminalHasSelection()) return
-  if (props.connected) terminalCapture.value?.focus()
-}
-
-function onWindowKey(e: KeyboardEvent) {
-  if (!terminalHasSelection()) return
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-    const sel = window.getSelection()?.toString()
-    if (!sel) return
-    e.preventDefault()
-    void navigator.clipboard.writeText(sel)
-  }
-}
-
-function onTerminalKey(e: KeyboardEvent) {
-  if (!props.connected) return
-  if (e.isComposing || composing) return
-  if (skipNextKey && e.key.length === 1) {
-    skipNextKey = false
-    e.preventDefault()
-    return
-  }
-  skipNextKey = false
-
-  if (e.ctrlKey || e.metaKey) {
-    const k = e.key.toLowerCase()
-    if (k === 'c') {
-      const sel = window.getSelection()?.toString()
-      if (sel) {
-        e.preventDefault()
-        void navigator.clipboard.writeText(sel)
-        return
-      }
-      e.preventDefault()
-      sendKeys('\u0003')
-      return
-    }
-    if (k === 'v') {
-      e.preventDefault()
-      void navigator.clipboard.readText().then((t) => sendKeys(t))
-      return
-    }
-    return
-  }
-  if (e.altKey) return
-
-  if (specialKeys[e.key]) {
-    e.preventDefault()
-    sendKeys(specialKeys[e.key])
-    return
-  }
-  if (e.key.length === 1) {
-    e.preventDefault()
-    sendKeys(e.key)
-  }
-}
-
-function onBeforeInput(e: InputEvent) {
-  if (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') {
-    e.preventDefault()
-    if (e.data) sendKeys(e.data)
-  }
-}
-
-function onCompositionStart() {
-  composing = true
-}
-
-function onCompositionEnd(e: CompositionEvent) {
-  composing = false
-  if (e.data) {
-    sendKeys(e.data)
-    skipNextKey = true
-  }
-}
-
-function sendCtrlC() {
-  sendKeys('\u0003')
-  terminalCapture.value?.focus()
-}
-
-function reopenTerminal() {
-  return act('terminal-reopen', async () => {
-    await CloseTerminal()
-    terminalReady.value = false
-    await ensureTerminal()
-    banner.value = { kind: 'info', text: '终端已重新打开' }
+    const pane = activePane.value
+    if (!pane) return
+    await pane.ensure()
+    await RunCommandInTerminal(activeId.value, c.id)
+    pane.focus()
   })
 }
 
@@ -439,26 +295,57 @@ function fileName(p: string): string {
     <div class="terminal-panel">
       <div class="terminal-head">
         <span class="terminal-title">终端</span>
-        <span class="terminal-state" :class="{ online: terminalReady }">
-          {{ terminalReady ? '已打开' : connected ? '…' : '未连接' }}
+        <span class="terminal-state" :class="{ online: activeReady }">
+          {{ activeReady ? '已打开' : props.connected ? '…' : '未连接' }}
         </span>
-        <button class="terminal-tool" :disabled="!connected" @click="sendCtrlC">Ctrl+C</button>
-        <button class="terminal-tool" :disabled="!connected || !!busy" @click="reopenTerminal">重开</button>
-        <button class="terminal-tool" :disabled="!terminalOutput" @click="terminalOutput = ''">清屏</button>
+        <button
+          class="terminal-tool"
+          :disabled="!props.connected || panes.length >= 4"
+          title="在右侧加开一个终端"
+          @click="addPane('cols')"
+        >
+          ⬌ 分屏
+        </button>
+        <button
+          class="terminal-tool"
+          :disabled="!props.connected || panes.length >= 4"
+          title="在下方加开一个终端"
+          @click="addPane('rows')"
+        >
+          ⬍ 分屏
+        </button>
+        <button class="terminal-tool" :disabled="!props.connected" title="向当前终端发送 Ctrl+C" @click="sendCtrlC">Ctrl+C</button>
+        <button class="terminal-tool" :disabled="!props.connected || !!busy" title="重开当前终端" @click="reopenTerminal">重开</button>
+        <button class="terminal-tool" title="清空当前终端的显示" @click="activePane?.clear()">清屏</button>
       </div>
-      <div class="terminal-body" @mousedown="onSelectStart" @click="focusCapture">
-        <pre ref="terminalScreen" class="terminal-screen" :class="{ live: terminalReady }">{{ terminalOutput }}</pre>
-        <textarea
-          ref="terminalCapture"
-          class="terminal-capture"
-          aria-label="终端输入"
-          autocomplete="off"
-          spellcheck="false"
-          :disabled="!connected"
-          @keydown="onTerminalKey"
-          @beforeinput="onBeforeInput"
-          @compositionstart="onCompositionStart"
-          @compositionend="onCompositionEnd"
+      <div ref="paneArea" class="pane-area" :class="{ dragging }" :style="gridStyle">
+        <TerminalPane
+          v-for="(id, i) in panes"
+          :key="id"
+          :ref="paneRefSetter(id)"
+          :session-id="id"
+          :connected="props.connected"
+          :active="id === activeId"
+          :closable="panes.length > 1"
+          :style="paneStyle(i)"
+          @activate="activeId = id"
+          @close="closePane(id)"
+          @error="(text) => (banner = { kind: 'err', text })"
+          @refresh-status="emit('refresh-status')"
+        />
+        <div
+          v-if="showVDivider"
+          class="divider divider-v"
+          :style="vDividerStyle"
+          title="拖动调整左右比例"
+          @mousedown.prevent="startDrag('col', $event)"
+        />
+        <div
+          v-if="showHDivider"
+          class="divider divider-h"
+          :style="hDividerStyle"
+          title="拖动调整上下比例"
+          @mousedown.prevent="startDrag('row', $event)"
         />
       </div>
     </div>
@@ -510,7 +397,7 @@ function fileName(p: string): string {
           v-for="c in commands"
           :key="c.id"
           class="cmd-run"
-          :disabled="!connected || !!busy"
+          :disabled="!props.connected || !!busy"
           :title="c.command"
           @click="run(c)"
           @contextmenu.prevent="openMenu($event, c)"
@@ -737,55 +624,35 @@ function fileName(p: string): string {
   color: #fff;
 }
 
-.terminal-body {
-  position: relative;
+/* 格子区：grid 的第 2 列/第 2 行是 6px 分隔条轨道，比例由 colRatio/rowRatio 决定。 */
+.pane-area {
+  display: grid;
   flex: 1 1 auto;
   min-height: 0;
+  padding: 4px;
 }
 
-.terminal-screen {
-  height: 100%;
-  margin: 0;
-  padding: 8px 10px;
-  overflow: auto;
-  background: #111318;
-  color: #d8dee9;
-  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  user-select: text;
-  cursor: text;
+/* 拖分隔条时禁止选中：鼠标会扫过终端文本，不拦的话拖完多出一段选区。 */
+.pane-area.dragging {
+  user-select: none;
 }
 
-.terminal-body:focus-within .terminal-screen {
-  box-shadow: inset 0 0 0 1px #3b82f6;
+.divider {
+  z-index: 2;
+  border-radius: 3px;
+  background: #303640;
 }
 
-.terminal-body:focus-within .terminal-screen.live::after {
-  content: '█';
-  color: #6ee7a0;
-  animation: terminal-blink 1s step-end infinite;
+.divider-v {
+  cursor: col-resize;
 }
 
-.terminal-capture {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: none;
-  opacity: 0;
-  resize: none;
+.divider-h {
+  cursor: row-resize;
 }
 
-@keyframes terminal-blink {
-  50% {
-    opacity: 0;
-  }
+.divider:hover,
+.pane-area.dragging .divider {
+  background: #3b82f6;
 }
 </style>

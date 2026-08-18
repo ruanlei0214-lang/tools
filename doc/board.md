@@ -1,6 +1,6 @@
 # 终端（board）
 
-当前版本 **V1.1.17**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
+当前版本 **V1.2.0**，声明在 `frontend/src/modules/board/module.ts`。侧栏显示为「终端」。
 
 ## 做什么
 
@@ -21,7 +21,8 @@
    密码可兼作密钥口令，没有密钥时仍用密码（空密码也可以）。程序不会自动连接。
 2. 本页左右分栏：**左边文件，右边终端**。指令按钮排在终端下方，小按钮，左键执行、右键编辑或删除。点「＋」展开名称和命令，保存即可。导入导出仍在工具行。
 3. 连接后自动打开 SSH 终端。点指令会把命令送进去。点进终端可直接打字；`Ctrl+C` 无选中时中断当前命令，有选中时复制。程序正在往终端打字时，划选文字会暂停刷屏，取消选中后再把攒着的输出贴上去，避免选区被冲掉。
-4. 文件区地址栏可手改，回车或「刷新」打开。上一级、上传、粘贴在同一行。列表下方留白，右键可粘贴、新建文件夹。单击选中，Ctrl+单击加选，Shift+单击连选；多选后右键的复制、剪切、删除对整批生效（重命名、编辑、下载仍是单个）。双击目录进去；双击图片（png/jpg/gif/webp/bmp/svg）在终端下方预览，终端与图片之间的横条可拖动，其它文件编辑文本（二进制或超过 48KB 会拒）。复制移动删除走终端里的 `cp` / `mv` / `rm` / `mkdir` / `cat`，重命名在文件名上就地改（回车确认、Esc 取消），不弹窗。上传下载仍走 SFTP。左右中间的竖条可拖动。
+4. 终端最多分屏成四格：头部「⬌ 分屏」左右并排、「⬍ 分屏」上下并排，第三、四格自动成四宫格（三格时第三格独占底行）。格间分隔条可拖动调整比例。每格是设备上一个独立的 shell 会话；最后点过的格子是当前终端（蓝边），头部的 Ctrl+C、重开、清屏和指令按钮都作用在它身上。悬停格子右上角出现 ×，可关掉该格（最后一格不能关）。
+5. 文件区地址栏可手改，回车或「刷新」打开。上一级、上传、粘贴在同一行。列表下方留白，右键可粘贴、新建文件夹。单击选中，Ctrl+单击加选，Shift+单击连选；多选后右键的复制、剪切、删除对整批生效（重命名、编辑、下载仍是单个）。双击目录进去；双击图片（png/jpg/gif/webp/bmp/svg）在终端下方预览，终端与图片之间的横条可拖动，其它文件编辑文本（二进制或超过 48KB 会拒）。复制移动删除走终端里的 `cp` / `mv` / `rm` / `mkdir` / `cat`，重命名在文件名上就地改（回车确认、Esc 取消），不弹窗。上传下载仍走 SFTP。左右中间的竖条可拖动。
 5. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。
 
 ## 配置文件
@@ -94,11 +95,11 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
 | `ExportCommands` | `() => Promise<string>` | 弹出保存框，把当前清单写成 JSON；取消返回空字符串 |
 | `ImportCommands` | `() => Promise<CommandFileResult>` | 弹出打开框，校验后整份替换；取消时 `canceled` 为真、清单不动 |
 | `RunCommand` | `(id: string) => Promise<CommandResult>` | 旧的一次性执行接口，仍保留 |
-| `StartTerminal` | `() => Promise<void>` | 在当前 SSH 连接上打开持久 PTY |
-| `RunCommandInTerminal` | `(id: string) => Promise<void>` | 从清单取出命令并写入终端 |
-| `WriteTerminal` | `(text: string) => Promise<void>` | 原样写入终端 |
-| `ReadTerminal` | `() => Promise<string>` | 取走终端新产生的输出 |
-| `CloseTerminal` | `() => Promise<void>` | 只关闭终端，不影响 SSH/SFTP |
+| `StartTerminal` | `(id: string) => Promise<void>` | 在当前 SSH 连接上为 id 打开持久 PTY；id 存活时复用，新会话最多 4 个 |
+| `RunCommandInTerminal` | `(id, cmdId: string) => Promise<void>` | 从清单取出命令并写入 id 对应的终端 |
+| `WriteTerminal` | `(id, text: string) => Promise<void>` | 原样写入 id 对应的终端 |
+| `ReadTerminal` | `(id: string) => Promise<string>` | 取走 id 对应终端新产生的输出 |
+| `CloseTerminal` | `(id: string) => Promise<void>` | 只关闭 id 对应的终端，不影响 SSH/SFTP 和其它终端 |
 | `ListDir` | `(dir: string) => Promise<Entry[]>` | 列远端目录 |
 | `ReadRemoteText` | `(path: string) => Promise<string>` | 读一份够小的文本，给编辑框用；二进制或超过 48KB 会拒 |
 | `ReadRemoteBytes` | `(path: string) => Promise<string>` | 读一份不超过 4MB 的文件（前端拿到的是 base64），给终端下方预览图片用 |
@@ -139,9 +140,13 @@ exe 同目录的 `toolbox-config.json`（remote 和 netcfg 也读这份）；没
   对着一个接受 TCP 却不说 SSH 的地址（透明代理、被占用的 22 端口）会一直等下去。
   这里在连接上设 deadline 走完三步，握手成功后再撤掉——留着的话之后每条命令的
   读写都会在那个时间点上一起失败。
-- **执行终端是持久 PTY**。连接后在同一条 SSH 连接上申请 `xterm` PTY 并启动 shell，
+- **执行终端是持久 PTY，且按会话 ID 多开**。连接后在同一条 SSH 连接上申请 `xterm` PTY 并启动 shell，
   指令按钮和手工输入都写进它；stdout/stderr 进入线程安全缓冲区，前端每 150ms 取一次。
   这样命令输出能实时显示，`cd`、环境变量等 shell 状态也会保留。
+  分屏后每个格子是一个独立会话（`terminals map[string]*terminalSession`，上限 4），
+  共享同一条 SSH 连接——多路复用是 SSH 原生能力，四个 shell 也只是四条 channel。
+  前端每格一个 `TerminalPane` 组件，各自轮询自己的会话；布局（单屏/左右/上下/四宫格）
+  和分隔条比例归 `CommandPanel`。
 - **终端输出有上限**。后端积压超过 1MB 时丢弃较早的一半，前端最多保留约 20 万字符，
   防止持续输出把内存耗尽。
 - **连接断了自己会知道**。后台等着这条连接结束，设备重启或网线被拔时状态立刻改回未连接，
@@ -191,7 +196,8 @@ internal/modules/board/config/config.json    连接默认值，编译进产物�
 internal/modules/board/config/commands.json  出厂指令清单，编译进产物
 frontend/src/modules/board/module.ts         模块清单
 frontend/src/modules/board/BoardView.vue     文件与终端的分栏外壳
-frontend/src/modules/board/CommandPanel.vue  指令按钮、编辑表单与执行终端
+frontend/src/modules/board/CommandPanel.vue  指令按钮、编辑表单与终端分屏布局
+frontend/src/modules/board/TerminalPane.vue  单个终端格子：输出渲染、按键捕获、划词保持
 frontend/src/modules/board/FilePanel.vue     远端资源管理器，右键操作走终端
 frontend/src/modules/board/ContextMenu.vue   指令按钮与文件列表共用的右键菜单
 ```

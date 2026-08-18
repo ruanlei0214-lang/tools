@@ -54,7 +54,8 @@ type UploadResult struct {
 	NeedsConfirm bool   `json:"needsConfirm"`
 }
 
-// Service 暴露给前端。它持有一条 SSH 长连接和挂在上面的 SFTP 客户端。
+// Service 暴露给前端。它持有一条 SSH 长连接和挂在上面的 SFTP 客户端，
+// 终端会话按 ID 索引，最多 maxTerminalSessions 个（界面上的分屏）。
 //
 // 连接显式建立、显式断开，不做自动重连：这里的命令是重启进程、删文件这种做过就回不去
 // 的事，藏在每次调用背后重连会让「刚才那一下到底发出去没有」说不清楚。
@@ -62,13 +63,17 @@ type Service struct {
 	settings Settings
 	ctx      context.Context
 
-	mu       sync.Mutex
-	conn     *ssh.Client
-	sftp     *sftp.Client
-	terminal *terminalSession
-	addr     string
-	lastErr  string
+	mu        sync.Mutex
+	conn      *ssh.Client
+	sftp      *sftp.Client
+	terminals map[string]*terminalSession
+	addr      string
+	lastErr   string
 }
+
+// maxTerminalSessions 是终端分屏的上限。每个会话在设备上是一个 shell 进程，
+// 界面上四个格子也已经摆满了。
+const maxTerminalSessions = 4
 
 // Config 返回页面默认值。地址和 SSH 凭据优先用共享配置 toolbox-config.json，
 // 没有或坏掉才退回编译进产物的 config.json——三个模块连的是同一台控制器。
@@ -191,9 +196,9 @@ func (s *Service) watch(conn *ssh.Client) {
 }
 
 func (s *Service) closeLocked() {
-	if s.terminal != nil {
-		s.terminal.close()
-		s.terminal = nil
+	for id, t := range s.terminals {
+		t.close()
+		delete(s.terminals, id)
 	}
 	if s.sftp != nil {
 		s.sftp.Close()
@@ -291,15 +296,19 @@ func (s *Service) RunCommand(id string) (CommandResult, error) {
 	return CommandResult{}, fmt.Errorf("按钮 %q 已经不在清单里了，刷新一下页面", id)
 }
 
-// StartTerminal 在当前 SSH 连接上打开一个持久 PTY。重复调用时复用仍存活的终端。
-func (s *Service) StartTerminal() error {
+// StartTerminal 在当前 SSH 连接上为 id 打开一个持久 PTY。id 已存在且存活时复用；
+// 新 id 在会话数到顶时被拒——前端分屏最多四个格子，这里兜底。
+func (s *Service) StartTerminal(id string) error {
+	if id == "" {
+		return errors.New("终端会话 ID 不能为空")
+	}
 	s.mu.Lock()
 	if s.conn == nil {
 		err := s.notConnectedLocked()
 		s.mu.Unlock()
 		return err
 	}
-	if s.terminal != nil && s.terminal.alive() {
+	if t, ok := s.terminals[id]; ok && t.alive() {
 		s.mu.Unlock()
 		return nil
 	}
@@ -317,20 +326,27 @@ func (s *Service) StartTerminal() error {
 		terminal.close()
 		return errors.New("打开终端期间主板连接已变化，请重试")
 	}
-	if s.terminal != nil {
-		s.terminal.close()
+	if old := s.terminals[id]; old != nil {
+		old.close()
 	}
-	s.terminal = terminal
+	if _, ok := s.terminals[id]; !ok && len(s.terminals) >= maxTerminalSessions {
+		terminal.close()
+		return fmt.Errorf("最多同时开 %d 个终端", maxTerminalSessions)
+	}
+	if s.terminals == nil {
+		s.terminals = map[string]*terminalSession{}
+	}
+	s.terminals[id] = terminal
 	return nil
 }
 
-// WriteTerminal 把文本原样写入终端。换行由调用方明确传入，因而也能发送 Ctrl+C 等控制字符。
-func (s *Service) WriteTerminal(text string) error {
+// WriteTerminal 把文本原样写入 id 对应的终端。换行由调用方明确传入，因而也能发送 Ctrl+C 等控制字符。
+func (s *Service) WriteTerminal(id, text string) error {
 	if len(text) > 64*1024 {
 		return errors.New("单次终端输入不能超过 64KB")
 	}
 	s.mu.Lock()
-	terminal := s.terminal
+	terminal := s.terminals[id]
 	s.mu.Unlock()
 	if terminal == nil || !terminal.alive() {
 		return errors.New("终端尚未打开")
@@ -338,10 +354,11 @@ func (s *Service) WriteTerminal(text string) error {
 	return terminal.write(text)
 }
 
-// ReadTerminal 取走当前累积的输出。前端短轮询调用；读过的内容不会再次返回。
-func (s *Service) ReadTerminal() (string, error) {
+// ReadTerminal 取走 id 对应终端当前累积的输出。前端短轮询调用；读过的内容不会再次返回。
+// id 不存在时返回空——会话可能刚被关掉，轮询晚到一步不算错误。
+func (s *Service) ReadTerminal(id string) (string, error) {
 	s.mu.Lock()
-	terminal := s.terminal
+	terminal := s.terminals[id]
 	s.mu.Unlock()
 	if terminal == nil {
 		return "", nil
@@ -349,25 +366,25 @@ func (s *Service) ReadTerminal() (string, error) {
 	return terminal.drain(), nil
 }
 
-// CloseTerminal 只关闭 PTY，不影响 SSH 连接和 SFTP。
-func (s *Service) CloseTerminal() {
+// CloseTerminal 关闭 id 对应的 PTY，不影响 SSH 连接、SFTP 和其他终端。
+func (s *Service) CloseTerminal(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.terminal != nil {
-		s.terminal.close()
-		s.terminal = nil
+	if t, ok := s.terminals[id]; ok {
+		t.close()
+		delete(s.terminals, id)
 	}
 }
 
-// RunCommandInTerminal 从持久化清单取出命令，写进当前终端。
-func (s *Service) RunCommandInTerminal(id string) error {
+// RunCommandInTerminal 从持久化清单取出命令，写进 id 对应的终端。
+func (s *Service) RunCommandInTerminal(id, cmdID string) error {
 	list := loadCommands()
 	for _, c := range list.Commands {
-		if c.ID == id {
-			return s.WriteTerminal(c.Command + "\n")
+		if c.ID == cmdID {
+			return s.WriteTerminal(id, c.Command+"\n")
 		}
 	}
-	return fmt.Errorf("按钮 %q 已经不在清单里了，刷新一下页面", id)
+	return fmt.Errorf("按钮 %q 已经不在清单里了，刷新一下页面", cmdID)
 }
 
 // ListDir 列出远端目录。

@@ -80,7 +80,7 @@ EOF
                 if [ "$(cat /sys/class/net/lan1/carrier 2>/dev/null)" = "0" ]; then
                     pidof udhcpd >/dev/null || udhcpd /tmp/udhcp_br0.conf
                 else
-                    killall udhcpd 2>/dev/null
+                    pidof udhcpd >/dev/null && killall udhcpd
                 fi
                 sleep 3
             done

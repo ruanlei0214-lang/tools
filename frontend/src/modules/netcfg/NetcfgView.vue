@@ -13,7 +13,7 @@ import type { netcfg } from '../../../wailsjs/go/models'
 import { loadShared } from '../../shell/connection'
 
 // 四个字段都由后端 Defaults() 填入：地址和凭据来自共享配置 toolbox-config.json。
-// 界面上不暴露编辑，要改去 exe 同目录改那份文件。
+// 地址在顶栏改；凭据界面上不暴露，要改去 exe 同目录改那份文件。
 const device = reactive<netcfg.Device>({ host: '', port: 0, user: '', password: '' })
 const form = reactive({ ip: '', mask: '', gateway: '' })
 const defaults = reactive({ mask: '', persistIface: '' })
@@ -130,6 +130,7 @@ function resetView() {
   ports.value = []
   selected.value = ''
   confirming.value = false
+  confirmingWifi.value = false
   restorable.value = false
   wifiSSID.value = ''
   wifiPassword.value = ''
@@ -197,12 +198,15 @@ function apply() {
   })
 }
 
+const confirmingWifi = ref(false)
+
 function applyWifi() {
   return call('wifi', async () => {
     await refreshDevice()
     const ch = wifiChannel.value === '' ? 0 : Number(wifiChannel.value)
     const out = await ApplyWifi(device, wifiSSID.value.trim(), wifiPassword.value, bandChoice.value, ch)
     wifiBand.value = bandChoice.value
+    confirmingWifi.value = false
     banner.value = { kind: 'ok', text: out || 'WiFi 正在重启' }
   })
 }
@@ -301,19 +305,7 @@ function restore() {
             <input id="gateway" v-model.trim="form.gateway" placeholder="留空表示不改默认路由" />
           </div>
           <div class="ip-actions">
-            <template v-if="confirming">
-              <button
-                class="danger"
-                :disabled="busy !== ''"
-                title="下发后连接会断开，请确认新地址与本机同网段"
-                @click="apply"
-              >
-                {{ busy === 'apply' ? '下发中…' : '确认下发' }}
-              </button>
-              <button :disabled="busy !== ''" @click="confirming = false">取消</button>
-            </template>
             <button
-              v-else
               class="primary"
               :disabled="!canApply || busy !== ''"
               @click="confirming = true"
@@ -383,9 +375,9 @@ function restore() {
             class="primary"
             :disabled="!canApplyWifi || busy !== ''"
             title="写入频段/信道并后台重启 WiFi，约 10 秒；信道留空表示保持现状"
-            @click="applyWifi"
+            @click="confirmingWifi = true"
           >
-            {{ busy === 'wifi' ? '应用中…' : '应用并重启' }}
+            下发配置
           </button>
         </div>
         <p class="chan-hint" :class="{ err: dfsChannel }">
@@ -394,6 +386,36 @@ function restore() {
         </p>
       </div>
     </section>
+
+    <div v-if="confirming" class="modal-mask">
+      <div class="modal">
+        <h2 class="modal-title">确认下发配置</h2>
+        <p class="modal-text">
+          下发后当前连接会断开，设备将使用新地址 {{ form.ip }}。请确认新地址与本机同网段。
+        </p>
+        <div class="modal-actions">
+          <button class="danger" :disabled="busy !== ''" @click="apply">
+            {{ busy === 'apply' ? '下发中…' : '确认下发' }}
+          </button>
+          <button :disabled="busy !== ''" @click="confirming = false">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="confirmingWifi" class="modal-mask">
+      <div class="modal">
+        <h2 class="modal-title">确认下发 WiFi 配置</h2>
+        <p class="modal-text">
+          下发后 WiFi 热点将重启（约 10 秒），已连接热点的设备会断开，需要用新配置重新连接。
+        </p>
+        <div class="modal-actions">
+          <button class="danger" :disabled="busy !== ''" @click="applyWifi">
+            {{ busy === 'wifi' ? '下发中…' : '确认下发' }}
+          </button>
+          <button :disabled="busy !== ''" @click="confirmingWifi = false">取消</button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="rebootNotice" class="modal-mask">
       <div class="modal">
@@ -702,6 +724,14 @@ function restore() {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+}
+
+.modal-text {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  word-break: break-all;
 }
 
 .modal-actions {

@@ -14,3 +14,9 @@ func New() *Service { return &Service{} }
 func (s *Service) SaveHost(host string) error {
 	return module.SaveHost(host)
 }
+
+// Host 返回共享配置里的当前地址，给顶栏回显。
+// board 被裁掉的产物（如 netcfg-ping）没有 board.Config 可读，地址只能从这里拿。
+func (s *Service) Host() string {
+	return module.LoadShared().Host
+}

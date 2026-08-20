@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { SaveHost } from '../../wailsjs/go/toolbox/Service'
+import { Host as loadHost, SaveHost } from '../../wailsjs/go/toolbox/Service'
 
 // 全系列工具共用一台控制器：地址和 SSH 凭据只有这一份（共享配置
 // toolbox-config.json），SSH（board）和 WebSocket（remote）都连它。
@@ -71,6 +71,9 @@ export async function loadShared() {
     conn.password = cfg.device.password
     conn.keyPath = cfg.device.keyPath || ''
     conn.sshPort = cfg.device.port || 22
+  } else {
+    // board 被裁掉的产物（如 netcfg-ping）没有 board.Config，地址从 toolbox 读。
+    conn.host = await loadHost()
   }
   persistedHost = conn.host.trim()
   conn.loaded = true

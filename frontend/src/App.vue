@@ -86,9 +86,10 @@ function toggleConnect() {
       </nav>
 
       <!-- 全系列工具共用一台控制器：地址只在这里显示，连接也只在这里按。
-           SSH 和 WS 各一个状态点，灰的没连、绿的已连、红的刚断过。
-           被 profile 裁掉的协议不显示（比如 netcfg-only 产物没有这两个点）。 -->
-      <div v-if="conn.hasSsh || conn.hasWs" class="conn-cluster">
+           地址输入框始终显示——board/remote 都被裁掉的产物（如 netcfg-ping）
+           也要靠它改设备地址；SSH 和 WS 状态点、连接按钮只在对应协议编进
+           产物时才出现。 -->
+      <div class="conn-cluster">
         <span
           v-if="conn.hasSsh"
           class="proto"
@@ -117,6 +118,7 @@ function toggleConnect() {
           @keyup.enter="commitHost"
         />
         <button
+          v-if="conn.hasSsh || conn.hasWs"
           class="primary conn-toggle"
           :disabled="!!conn.busy || (!anyConnected && (!conn.host.trim() || !conn.user.trim()))"
           @click="toggleConnect"

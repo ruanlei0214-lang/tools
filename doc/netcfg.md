@@ -1,6 +1,6 @@
 # 网络配置（netcfg）
 
-当前版本 **V1.0.22**，声明在 `frontend/src/modules/netcfg/module.ts`。
+当前版本 **V1.0.23**，声明在 `frontend/src/modules/netcfg/module.ts`。
 
 ## 做什么
 
@@ -264,10 +264,10 @@ nohup sh -c 'sleep 1; ip addr flush dev eth0; ip addr add 192.168.1.10/24 dev et
 开头的 `sleep 1` 是留给 SSH 把命令投递完的余量。
 
 **持久化写在改地址之前，而且是前台执行。** 改 `persistIface` 时，先往 `restoreFile`
-写三行，成功之后才发改地址的后台命令：
+所在目录写三个文件——`ip`、`mask`、`gateway` 各一行，成功之后才发改地址的后台命令：
 
 ```sh
-printf '%s\n%s\n%s\n' '192.168.1.50' '255.255.255.0' '192.168.1.1' > '/opt/runtime/ip'
+printf '%s\n' '192.168.1.50' > '/opt/runtime/ip'; printf '%s\n' '255.255.255.0' > '/opt/runtime/mask'; printf '%s\n' '192.168.1.1' > '/opt/runtime/gateway'
 ```
 
 顺序不能反。写文件不断连，失败能当场报给用户；而地址一改这条连接就没了，之后再发生
@@ -275,9 +275,9 @@ printf '%s\n%s\n%s\n' '192.168.1.50' '255.255.255.0' '192.168.1.1' > '/opt/runti
 运行时地址改掉、持久化却悄悄失败，是个更难查的状态：现场看着地址生效了，重启才发现
 回到了旧地址。
 
-网关为空时仍然写一个空行。行号与字段的对应关系是这个文件格式的全部，少一行会让读取
-方把空网关当成掩码。用 `printf` 而不是 `echo`，因为 `echo` 对反斜杠的处理各家 shell
-不一致，busybox 尤其。
+IP、掩码、网关各一个文件，和 `setBridge.sh` 启动时的读取方一一对应。网关为空就写
+空文件：没有默认路由是合法状态，脚本读到空行就不配路由。用 `printf` 而不是 `echo`，
+因为 `echo` 对反斜杠的处理各家 shell 不一致，busybox 尤其。
 
 **兼容 busybox。** 读取用 `ip addr show` 和 `ip route show` 的原始输出做文本解析，
 没用 `-j`（JSON）或 `-o`（单行）这些 busybox 上不一定有的选项。解析同时覆盖
@@ -294,7 +294,8 @@ iproute2 和 busybox 两种格式，veth 那种 `eth0@if3` 的命名也能正确
 - 掩码必须是连续掩码，`255.0.255.0` 这种会被拒
 - 网关必须与新 IP 同网段，否则 `ip route add default via` 会失败
 
-**恢复网络只删文件、替换脚本，工具不代做重启。** 动作是 `rm -f /opt/runtime/pi`，
+**恢复网络只删文件、替换脚本，工具不代做重启。** 动作是 `rm -f` 删掉 `restoreFile`
+及同目录的 `mask`、`gateway`（删掉后由 `setBridge.sh` 按默认值重建，正好是出厂状态），
 再把随包的 `setBridge.sh` / `setWifi.sh` 写到 `/opt`（stdin 写入，先归一成 LF——
 Windows 签出的 CRLF 会让设备报 `/bin/sh\r: not found`）。重启由现场人工执行。
 这条边界是刻意划的：重启机器人控制器影响面大得多，什么时候能重启只有现场知道，
@@ -343,7 +344,7 @@ Windows 签出的 CRLF 会让设备报 `/bin/sh\r: not found`）。重启由现�
 是因为通用做法各家设备差别太大（`/etc/network/interfaces`、netplan、自定义启动脚本），
 猜不得。
 
-**持久化的生效依赖设备自身的启动脚本。** 工具只负责把三行写进文件，控制器重启时会不会
+**持久化的生效依赖设备自身的启动脚本。** 工具只负责把三个文件写好，控制器重启时会不会
 读它、怎么读，是设备侧的事。写成功不等于重启后一定生效——这一点和「一键恢复」是同一个
 边界：工具管文件，不管文件被怎么用。
 

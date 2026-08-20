@@ -1,32 +1,46 @@
 import { reactive } from 'vue'
 import { SaveHost } from '../../wailsjs/go/toolbox/Service'
-import {
-  Config as boardConfig,
-  Connect as boardConnect,
-  Disconnect as boardDisconnect,
-  Status as boardStatus,
-} from '../../wailsjs/go/board/Service'
-import {
-  Config as remoteConfig,
-  Connect as remoteConnect,
-  Disconnect as remoteDisconnect,
-  Status as remoteStatus,
-} from '../../wailsjs/go/remote/Service'
 
 // 全系列工具共用一台控制器：地址和 SSH 凭据只有这一份（共享配置
 // toolbox-config.json），SSH（board）和 WebSocket（remote）都连它。
 // 顶栏的连接按钮同时建这两条连接，状态点分开显示；各模块页面不再有自己的
 // 连接按钮，只从这里读状态。
 //
-// profile 可能把 board 或 remote 裁掉（比如 netcfg-only），那时对应的后端
-// 绑定在运行时不存在。调之前先探一下，裁掉的协议就不连也不显示。
+// profile 可能把 board 或 remote 裁掉（比如 netcfg-ping），那时 Wails 不会
+// 生成对应绑定文件。这里不 import 那些文件，改走 window.go，裁掉也能通过 vue-tsc。
+type ConnStatus = { connected: boolean; addr: string; error: string }
+type BoardSettings = { device: { host: string; port: number; user: string; password: string; keyPath?: string } }
+type RemoteSettings = { device: { port?: number; path?: string } }
+type GoMethod = (...args: unknown[]) => Promise<unknown>
+
 declare global {
   interface Window {
-    go?: { board?: { Service?: unknown }; remote?: { Service?: unknown } }
+    go?: {
+      board?: { Service?: Record<string, GoMethod | undefined> }
+      remote?: { Service?: Record<string, GoMethod | undefined> }
+    }
   }
 }
+
 const hasBoard = () => !!window.go?.board?.Service
 const hasRemote = () => !!window.go?.remote?.Service
+
+function goCall<T>(mod: 'board' | 'remote', method: string, ...args: unknown[]): Promise<T> {
+  const fn = window.go?.[mod]?.Service?.[method]
+  if (typeof fn !== 'function') {
+    return Promise.reject(new Error(`${mod}.${method} 不在当前产物里`))
+  }
+  return fn(...args) as Promise<T>
+}
+
+const boardConfig = () => goCall<BoardSettings>('board', 'Config')
+const boardConnect = (d: unknown) => goCall<ConnStatus>('board', 'Connect', d)
+const boardDisconnect = () => goCall<ConnStatus>('board', 'Disconnect')
+const boardStatus = () => goCall<ConnStatus>('board', 'Status')
+const remoteConfig = () => goCall<RemoteSettings>('remote', 'Config')
+const remoteConnect = (d: unknown) => goCall<ConnStatus>('remote', 'Connect', d)
+const remoteDisconnect = () => goCall<ConnStatus>('remote', 'Disconnect')
+const remoteStatus = () => goCall<ConnStatus>('remote', 'Status')
 
 export const conn = reactive({
   host: '',
@@ -129,10 +143,10 @@ export async function connectAll(): Promise<{ kind: 'ok' | 'err'; text: string }
     }
     // WS 的端口和路径归 remote 模块自己管，建连前取它当前的那份。
     const wsTarget = hasRemote()
-      ? await remoteConfig().then((c) => ({
+      ? await remoteConfig().then((cfg: RemoteSettings) => ({
           host: device.host,
-          port: c.device.port || 9000,
-          path: c.device.path || '/',
+          port: cfg.device.port || 9000,
+          path: cfg.device.path || '/',
         }))
       : null
 

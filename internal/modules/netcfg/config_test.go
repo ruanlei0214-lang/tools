@@ -1,6 +1,9 @@
 package netcfg
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestEmbeddedConfig 守住随包发布的 config.json：go:embed 只保证文件存在、不看内容，
 // 配置写坏本来要到运行时才由兜底接住，那时问题已经进了产物。
@@ -97,9 +100,26 @@ func TestParseSettings(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
 			}
-		if err == nil && got.Device.Port != 22 {
-			t.Errorf("端口 = %d, 期望 22", got.Device.Port)
-		}
-	})
+			if err == nil && got.Device.Port != 22 {
+				t.Errorf("端口 = %d, 期望 22", got.Device.Port)
+			}
+		})
+	}
+}
+
+// lan3/lan4 与桥无关，必须在任何 exit 1 之前配完，失败也不能中断另一个口。
+func TestSetBridgeAlwaysConfiguresLan34(t *testing.T) {
+	s := string(setBridgeScript)
+	lan3 := strings.Index(s, `set_fixed lan3`)
+	lan4 := strings.Index(s, `set_fixed lan4`)
+	exit := strings.Index(s, "exit 1")
+	if lan3 < 0 || lan4 < 0 {
+		t.Fatal("lan3/lan4 必须通过 set_fixed 配置")
+	}
+	if exit < 0 || lan3 > exit || lan4 > exit {
+		t.Fatal("lan3/lan4 必须在任何 exit 1 之前配置，br0 失败也不能把它们跳过")
+	}
+	if strings.Contains(s, "DEF_GW") {
+		t.Fatal("网关非法时不回退默认值，DEF_GW 是死代码")
 	}
 }

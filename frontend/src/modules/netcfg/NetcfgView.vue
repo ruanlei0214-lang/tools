@@ -222,7 +222,7 @@ function restore() {
     <section class="panel">
       <div class="block-head">
         <div class="step-label">设备</div>
-        <p class="step-hint">先刷新，再改网口或 WiFi。地址在顶栏。</p>
+        <p class="step-hint">先刷新，再改 IP 或 WiFi。地址在顶栏。</p>
       </div>
       <div class="toolbar">
         <button class="primary" :disabled="busy !== ''" @click="test">
@@ -241,8 +241,90 @@ function restore() {
           {{ status?.text ?? '尚未刷新' }}
         </div>
       </div>
+    </section>
 
-      <div v-if="restorable" class="wifi-block">
+    <section v-if="ports.length" class="panel">
+      <div class="block-head">
+        <div class="step-label">网口</div>
+        <p class="step-hint">各口现状。改地址用下面的 IP 设置。</p>
+      </div>
+
+      <div class="port-list">
+        <div class="port-row port-head">
+          <span>口名</span>
+          <span>IP</span>
+          <span>掩码</span>
+          <span>网关</span>
+        </div>
+        <button
+          v-for="p in ports"
+          :key="p.name"
+          type="button"
+          class="port-row"
+          :class="{
+            selected: p.name === selected,
+            editable: p.editable,
+            readonly: p.iface && !p.editable,
+            blank: !p.iface,
+          }"
+          :disabled="!p.editable"
+          @click="select(p)"
+        >
+          <span class="port-name">{{ p.name }}</span>
+          <div class="port-ip">{{ p.ip || '—' }}</div>
+          <div class="port-mask">{{ p.iface ? p.mask || '—' : '—' }}</div>
+          <div class="port-gw">{{ p.iface ? p.gateway || '—' : '—' }}</div>
+        </button>
+      </div>
+    </section>
+
+    <section v-if="restorable" class="panel">
+      <div v-if="current" class="setup-block">
+        <div class="wifi-head">
+          <div class="wifi-title">IP 设置</div>
+          <p v-if="siblings.length" class="step-hint">
+            {{ siblings.join('、') }} 是同一网口，改一个另外几个一起变。
+          </p>
+          <p v-else class="step-hint">面板 lan1，主网口</p>
+        </div>
+        <div class="field-row ip-row">
+          <div class="field">
+            <label for="ip">IP 地址</label>
+            <input id="ip" v-model.trim="form.ip" placeholder="192.168.1.100" />
+          </div>
+          <div class="field">
+            <label for="mask">子网掩码</label>
+            <input id="mask" v-model.trim="form.mask" placeholder="255.255.255.0" />
+          </div>
+          <div class="field">
+            <label for="gateway">默认网关</label>
+            <input id="gateway" v-model.trim="form.gateway" placeholder="留空表示不改默认路由" />
+          </div>
+          <div class="ip-actions">
+            <template v-if="confirming">
+              <button
+                class="danger"
+                :disabled="busy !== ''"
+                title="下发后连接会断开，请确认新地址与本机同网段"
+                @click="apply"
+              >
+                {{ busy === 'apply' ? '下发中…' : '确认下发' }}
+              </button>
+              <button :disabled="busy !== ''" @click="confirming = false">取消</button>
+            </template>
+            <button
+              v-else
+              class="primary"
+              :disabled="!canApply || busy !== ''"
+              @click="confirming = true"
+            >
+              下发配置
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="setup-block">
         <div class="wifi-head">
           <div class="wifi-title">WiFi 设置</div>
         </div>
@@ -313,83 +395,6 @@ function restore() {
       </div>
     </section>
 
-    <section v-if="ports.length" class="panel">
-      <div class="block-head">
-        <div class="step-label">网口</div>
-        <p v-if="editable.length" class="step-hint">
-          点可改的口改地址。可改：{{ editable.map((p) => p.name).join('、') }}
-        </p>
-        <p v-else class="step-hint">这台设备上没有可以在这里改地址的网口</p>
-      </div>
-
-      <div class="port-list">
-        <div class="port-row port-head">
-          <span>口名</span>
-          <span>IP</span>
-          <span>掩码</span>
-          <span>网关</span>
-        </div>
-        <button
-          v-for="p in ports"
-          :key="p.name"
-          type="button"
-          class="port-row"
-          :class="{
-            selected: p.name === selected,
-            editable: p.editable,
-            readonly: p.iface && !p.editable,
-            blank: !p.iface,
-          }"
-          :disabled="!p.editable"
-          @click="select(p)"
-        >
-          <span class="port-name">{{ p.name }}</span>
-          <div class="port-ip">{{ p.ip || '—' }}</div>
-          <div class="port-mask">{{ p.iface ? p.mask || '—' : '—' }}</div>
-          <div class="port-gw">{{ p.iface ? p.gateway || '—' : '—' }}</div>
-        </button>
-      </div>
-    </section>
-
-    <section v-if="selected" class="panel edit-panel">
-      <div class="block-head">
-        <div class="step-label">修改 {{ selected }}</div>
-        <p v-if="siblings.length" class="step-hint">
-          {{ siblings.join('、') }} 是同一网口，改一个另外几个一起变。
-        </p>
-      </div>
-
-      <div class="field-row">
-        <div class="field">
-          <label for="ip">IP 地址</label>
-          <input id="ip" v-model.trim="form.ip" placeholder="192.168.1.100" />
-        </div>
-        <div class="field">
-          <label for="mask">子网掩码</label>
-          <input id="mask" v-model.trim="form.mask" placeholder="255.255.255.0" />
-        </div>
-        <div class="field">
-          <label for="gateway">默认网关</label>
-          <input id="gateway" v-model.trim="form.gateway" placeholder="留空表示不改默认路由" />
-        </div>
-      </div>
-
-      <div class="actions">
-        <template v-if="confirming">
-          <button class="danger" :disabled="busy !== ''" @click="apply">
-            {{ busy === 'apply' ? '下发中…' : '确认下发' }}
-          </button>
-          <button :disabled="busy !== ''" @click="confirming = false">取消</button>
-          <span class="hint">下发后连接会断开，请确认新地址与本机同网段。</span>
-        </template>
-        <template v-else>
-          <button class="primary" :disabled="!canApply || busy !== ''" @click="confirming = true">
-            下发配置
-          </button>
-        </template>
-      </div>
-    </section>
-
     <div v-if="rebootNotice" class="modal-mask">
       <div class="modal">
         <h2 class="modal-title">请重启机器人控制器</h2>
@@ -450,10 +455,16 @@ function restore() {
   font-weight: 600;
 }
 
-.wifi-block {
+.setup-block {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+
+.setup-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .wifi-head {
@@ -619,14 +630,24 @@ function restore() {
   word-break: break-all;
 }
 
-.edit-panel {
-  border-color: #c9d8f5;
-  background: #f8faff;
+.ip-row {
+  flex-wrap: nowrap;
+  align-items: flex-end;
 }
 
-.actions {
-  margin-top: 10px;
+.ip-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
   gap: 8px;
+  margin-left: auto;
+}
+
+.ip-actions > button {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* 状态占掉连接行剩下的宽度。这一格的高度不能跟着消息变，

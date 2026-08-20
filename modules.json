@@ -1,7 +1,8 @@
 {
   "profiles": {
     "all": ["*"],
-    "netcfg-only": ["netcfg", "ping"],
+    "netcfg-only": ["netcfg"],
+    "netcfg-ping": ["netcfg", "ping"],
     "board-only": ["board"]
   }
 }

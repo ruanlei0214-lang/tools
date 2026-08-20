@@ -4,6 +4,7 @@ package netcfg
 import (
 	"embedtools/internal/module"
 	"fmt"
+	pathpkg "path"
 	"strings"
 )
 
@@ -148,9 +149,10 @@ func (s *Service) Defaults() Settings {
 	return settings
 }
 
-// RestoreNetwork 删除设备上的网络持久化文件，并把 setBridge.sh / setWifi.sh
-// 替换成随包的出厂版本——现场改坏的脚本单靠删配置文件救不回来。
+// RestoreNetwork 删除设备上的网络持久化文件（ip 及同目录的 mask、gateway），
+// 并把 setBridge.sh / setWifi.sh 替换成随包的出厂版本——现场改坏的脚本单靠删配置文件救不回来。
 // 重启由现场人工执行。删哪个文件由 config.json 决定，rm -f 让文件本来就不存在时也算成功。
+// mask/gateway 删掉后由 setBridge.sh 按默认值重建，正好就是出厂状态。
 func (s *Service) RestoreNetwork(d Device) error {
 	client, err := dial(d)
 	if err != nil {
@@ -158,7 +160,11 @@ func (s *Service) RestoreNetwork(d Device) error {
 	}
 	defer client.Close()
 
-	if _, err := run(client, fmt.Sprintf("rm -f %s", quote(loadSettings().RestoreFile))); err != nil {
+	settings := loadSettings()
+	dir := pathpkg.Dir(settings.RestoreFile)
+	targets := fmt.Sprintf("%s %s %s",
+		quote(settings.RestoreFile), quote(dir+"/mask"), quote(dir+"/gateway"))
+	if _, err := run(client, "rm -f "+targets); err != nil {
 		return err
 	}
 	scripts := []struct {
@@ -177,15 +183,18 @@ func (s *Service) RestoreNetwork(d Device) error {
 	return nil
 }
 
-// persistScript 把地址写进设备的持久化文件，三行依次是 IP、子网掩码、默认网关。
+// persistScript 把地址写进设备的持久化文件。IP、掩码、网关各一个文件，
+// 都在 path 所在目录下（ip / mask / gateway），setBridge.sh 启动时按这三个文件恢复 br0。
 //
-// 网关为空时留一个空行而不是只写两行：行号和字段的对应关系是这个文件格式的全部，
-// 少一行会让读取方把空网关误当成掩码。
+// 网关为空就写空文件：没有默认路由是合法状态，脚本读到空行就不配路由。
 //
 // 用 printf 不用 echo：echo 对反斜杠的处理各家 shell 不一致，busybox 尤其。
 func persistScript(cfg Config, path string) string {
-	return fmt.Sprintf("printf '%%s\\n%%s\\n%%s\\n' %s %s %s > %s",
-		quote(cfg.IP), quote(cfg.Mask), quote(cfg.Gateway), quote(path))
+	dir := pathpkg.Dir(path)
+	return fmt.Sprintf("printf '%%s\\n' %s > %s; printf '%%s\\n' %s > %s; printf '%%s\\n' %s > %s",
+		quote(cfg.IP), quote(path),
+		quote(cfg.Mask), quote(dir+"/mask"),
+		quote(cfg.Gateway), quote(dir+"/gateway"))
 }
 
 // applyScript 先 sleep 让 SSH 有机会把命令投递完，再改地址。

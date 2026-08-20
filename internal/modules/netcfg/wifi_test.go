@@ -140,6 +140,31 @@ func TestWifiRestartCmdStaysInOpt(t *testing.T) {
 		t.Fatal("重启必须 nohup：前台跑会把走 br0 的 SSH 一起杀掉")
 	}
 	if strings.Contains(wifiRestartCmd, "192.168.6.1") {
-		t.Fatal("现行脚本不再给 wlan0 配 192.168.6.1")
+		t.Fatal("wlan0 只进 br0，重启命令不能再给它配独立地址")
+	}
+	script := string(setWifiScript)
+	if strings.Contains(script, "192.168.6.1") {
+		t.Fatal("setWifi.sh 不能再给 wlan0 配独立地址")
+	}
+	if !strings.Contains(script, "brctl addif br0 wlan0") {
+		t.Fatal("setWifi.sh 必须把 wlan0 挂进 br0，和有线共用桥上的静态地址")
+	}
+	if !strings.Contains(script, "udhcpd /tmp/udhcp_br0.conf") {
+		t.Fatal("br0 上必须起 DHCP，电脑不用设静态 IP")
+	}
+	if strings.Contains(script, "carrier") {
+		t.Fatal("不能再看 lan1 载波才起 DHCP：脚本跑完时网线常还插着，热点会一直没地址")
+	}
+	if strings.Contains(script, "ip monitor link") {
+		t.Fatal("不能再靠链路监视进程：busybox 经常没有这条命令，进程会立刻退出")
+	}
+	if strings.Contains(script, "while true") || strings.Contains(script, "sleep 3") {
+		t.Fatal("不能按秒轮询载波：常驻空转会碰实时核")
+	}
+	if strings.Contains(script, "/etc/udev") || strings.Contains(script, "udevadm") || strings.Contains(script, "mdev.conf") {
+		t.Fatal("不能用 udev/mdev：内核拉起的进程可能落到实时核")
+	}
+	if !strings.Contains(script, "taskset") || !strings.Contains(script, "0-1") {
+		t.Fatal("udhcpd 必须钉核 0-1，避开实时核 2/3")
 	}
 }

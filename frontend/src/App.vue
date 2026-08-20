@@ -5,7 +5,7 @@ import { modules } from './shell/registry'
 import { APP_NAME, APP_VERSION } from './shell/version'
 import { conn, connectAll, disconnectAll, loadShared, persistHost } from './shell/connection'
 
-const activeId = ref(modules[0]?.id ?? '')
+const activeId = ref(modules.find((m) => m.id === 'netcfg')?.id ?? modules[0]?.id ?? '')
 const active = computed(() => modules.find((m) => m.id === activeId.value))
 const showAbout = ref(false)
 const alwaysOnTopKey = 'embedtools.alwaysOnTop'

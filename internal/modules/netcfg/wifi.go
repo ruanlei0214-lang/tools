@@ -224,7 +224,7 @@ const wifiRestartCmd = "nohup sh -c '" +
 	"ip link set br0 up 2>/dev/null; " +
 	"if ! ip addr show br0 2>/dev/null | grep -q \"inet \"; then " +
 	"IP=$(sed -n 1p /opt/runtime/ip | tr -d \"\\r\"); " +
-	"MASK=$(sed -n 2p /opt/runtime/ip | tr -d \"\\r\"); " +
+	"MASK=$(sed -n 1p /opt/runtime/mask | tr -d \"\\r\"); " +
 	"ifconfig br0 \"$IP\" netmask \"$MASK\" up; fi; " +
 	"if ! hostapd_cli -p /var/run/hostapd status 2>/dev/null | grep -q state=ENABLED; then " +
 	"brctl delif br0 wlan0 2>/dev/null; fi" +

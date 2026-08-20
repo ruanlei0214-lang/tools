@@ -4,6 +4,8 @@ import "testing"
 
 // persistScript 生成的是要在设备上跑的 shell 命令，写错了要到真机才暴露，
 // 而那时地址已经改了、连接已经断了，很难查。这里把命令文本本身钉住。
+//
+// 持久化是三个文件：ip 一行、mask 一行、gateway 一行，和 setBridge.sh 的读取方对应。
 func TestPersistScript(t *testing.T) {
 	tests := []struct {
 		name string
@@ -15,21 +17,21 @@ func TestPersistScript(t *testing.T) {
 			name: "三项齐全",
 			cfg:  Config{IP: "192.168.1.50", Mask: "255.255.255.0", Gateway: "192.168.1.1"},
 			path: "/opt/runtime/ip",
-			want: `printf '%s\n%s\n%s\n' '192.168.1.50' '255.255.255.0' '192.168.1.1' > '/opt/runtime/ip'`,
+			want: `printf '%s\n' '192.168.1.50' > '/opt/runtime/ip'; printf '%s\n' '255.255.255.0' > '/opt/runtime/mask'; printf '%s\n' '192.168.1.1' > '/opt/runtime/gateway'`,
 		},
 		{
-			// 网关留空也要占住第三行，否则读取方会把行号错位。
-			name: "网关为空仍占一行",
+			// 没有默认路由是合法状态，空网关写成空文件，脚本读到空行就不配路由。
+			name: "网关为空写空文件",
 			cfg:  Config{IP: "10.0.0.2", Mask: "255.255.0.0", Gateway: ""},
 			path: "/opt/runtime/ip",
-			want: `printf '%s\n%s\n%s\n' '10.0.0.2' '255.255.0.0' '' > '/opt/runtime/ip'`,
+			want: `printf '%s\n' '10.0.0.2' > '/opt/runtime/ip'; printf '%s\n' '255.255.0.0' > '/opt/runtime/mask'; printf '%s\n' '' > '/opt/runtime/gateway'`,
 		},
 		{
 			// 路径由配置提供，出现单引号时不能把命令截断。
 			name: "路径里的单引号被转义",
 			cfg:  Config{IP: "10.0.0.2", Mask: "255.255.255.0"},
 			path: "/opt/it's/ip",
-			want: `printf '%s\n%s\n%s\n' '10.0.0.2' '255.255.255.0' '' > '/opt/it'\''s/ip'`,
+			want: `printf '%s\n' '10.0.0.2' > '/opt/it'\''s/ip'; printf '%s\n' '255.255.255.0' > '/opt/it'\''s/mask'; printf '%s\n' '' > '/opt/it'\''s/gateway'`,
 		},
 	}
 

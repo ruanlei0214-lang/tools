@@ -1,0 +1,8 @@
+# AIC8800 以存储形态插入时先弹出，切到 WiFi 模式
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_VENDOR_ID}=="a69c", ENV{ID_MODEL_ID}=="5721", RUN+="/usr/bin/eject $env{DEVNAME}"
+
+# wlan0 出现后恢复 AP（热插拔 / 开机晚枚举）
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", RUN+="/opt/shell/fcu760k_hotplug.sh add"
+
+# wlan0 消失时清掉旧 hostapd，避免插回后误判已在运行
+ACTION=="remove", SUBSYSTEM=="net", KERNEL=="wlan0", RUN+="/opt/shell/fcu760k_hotplug.sh remove"

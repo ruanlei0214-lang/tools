@@ -5,8 +5,10 @@ import {
   ApplyWifi,
   Defaults,
   GetWifiAp,
+  GetWifiHotplug,
   ListPorts,
   RestoreNetwork,
+  SetWifiHotplug,
   TestConnection,
 } from '../../../wailsjs/go/netcfg/Service'
 import type { netcfg } from '../../../wailsjs/go/models'
@@ -131,6 +133,9 @@ function resetView() {
   selected.value = ''
   confirming.value = false
   confirmingWifi.value = false
+  confirmingHotplug.value = false
+  confirmingRestore.value = false
+  hotplugOn.value = null
   restorable.value = false
   wifiSSID.value = ''
   wifiPassword.value = ''
@@ -157,6 +162,12 @@ function test() {
       bandChoice.value = wifiBand.value
     } catch {
       // 网口已经读到了，WiFi 读失败不挡改地址。
+    }
+    try {
+      hotplugOn.value = await GetWifiHotplug(device)
+    } catch {
+      // 热插拔状态读不到就只不显示开关，不挡其他功能。
+      hotplugOn.value = null
     }
 
     // 面板口恒为五个（wlan 另算），所以"有没有东西可配"要看有没有能改的口，而不是读到了几行。
@@ -199,6 +210,10 @@ function apply() {
 }
 
 const confirmingWifi = ref(false)
+// 热插拔状态从设备 udev 规则里读，null 表示还没读到（未刷新或读取失败）。
+const hotplugOn = ref<boolean | null>(null)
+const confirmingHotplug = ref(false)
+const confirmingRestore = ref(false)
 
 function applyWifi() {
   return call('wifi', async () => {
@@ -211,10 +226,23 @@ function applyWifi() {
   })
 }
 
+function applyHotplug() {
+  const target = !hotplugOn.value
+  return call('hotplug', async () => {
+    await refreshDevice()
+    await SetWifiHotplug(device, target)
+    hotplugOn.value = target
+    confirmingHotplug.value = false
+    banner.value = { kind: 'ok', text: target ? '热插拔已开启' : '热插拔已关闭' }
+    rebootNotice.value = true
+  })
+}
+
 function restore() {
   return call('restore', async () => {
     await refreshDevice()
     await RestoreNetwork(device)
+    confirmingRestore.value = false
     banner.value = { kind: 'ok', text: '已恢复出厂网络配置，请重启控制器' }
     rebootNotice.value = true
   })
@@ -237,9 +265,9 @@ function restore() {
           class="danger"
           :disabled="busy !== ''"
           title="删除地址持久化文件，并替换 /opt/setBridge.sh、/opt/setWifi.sh 为出厂版本"
-          @click="restore"
+          @click="confirmingRestore = true"
         >
-          {{ busy === 'restore' ? '恢复中…' : '一键恢复网络' }}
+          一键恢复网络
         </button>
         <div class="status" :class="status?.kind" :title="status?.text" aria-live="polite">
           {{ status?.text ?? '尚未刷新' }}
@@ -385,6 +413,32 @@ function restore() {
           <template v-else>{{ channelHint }}</template>
         </p>
       </div>
+
+      <div v-if="hotplugOn !== null" class="setup-block">
+        <div class="wifi-head">
+          <div class="wifi-title">USB WiFi 热插拔</div>
+          <span class="hotplug-badge" :class="{ on: hotplugOn }">
+            {{ hotplugOn ? '已开启' : '已关闭' }}
+          </span>
+        </div>
+        <div class="hotplug-row">
+          <p class="hotplug-desc">
+            开启后插入 USB WiFi 会自动恢复热点（约 10 秒）；修改需重启控制器生效
+          </p>
+          <button
+            type="button"
+            class="switch"
+            :class="{ on: hotplugOn }"
+            role="switch"
+            :aria-checked="hotplugOn"
+            :disabled="busy !== ''"
+            :title="hotplugOn ? '点击关闭热插拔' : '点击开启热插拔'"
+            @click="confirmingHotplug = true"
+          >
+            <span class="switch-thumb" />
+          </button>
+        </div>
+      </div>
     </section>
 
     <div v-if="confirming" class="modal-mask">
@@ -413,6 +467,40 @@ function restore() {
             {{ busy === 'wifi' ? '下发中…' : '确认下发' }}
           </button>
           <button :disabled="busy !== ''" @click="confirmingWifi = false">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="confirmingHotplug" class="modal-mask">
+      <div class="modal">
+        <h2 class="modal-title">{{ hotplugOn ? '确认关闭热插拔' : '确认开启热插拔' }}</h2>
+        <p class="modal-text">
+          {{ hotplugOn
+            ? '关闭后插拔 USB WiFi 不再自动恢复热点。'
+            : '开启后插入 USB WiFi 会自动恢复热点。' }}
+          将改写设备上的 udev 规则，重启控制器后生效。
+        </p>
+        <div class="modal-actions">
+          <button class="danger" :disabled="busy !== ''" @click="applyHotplug">
+            {{ busy === 'hotplug' ? '执行中…' : hotplugOn ? '确认关闭' : '确认开启' }}
+          </button>
+          <button :disabled="busy !== ''" @click="confirmingHotplug = false">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="confirmingRestore" class="modal-mask">
+      <div class="modal">
+        <h2 class="modal-title">确认恢复网络</h2>
+        <p class="modal-text">
+          将删除设备上的地址持久化文件（ip / mask / gateway），并把 /opt/setBridge.sh、
+          /opt/setWifi.sh 替换为出厂版本。重启控制器后生效，现场改过的网络配置都会丢失。
+        </p>
+        <div class="modal-actions">
+          <button class="danger" :disabled="busy !== ''" @click="restore">
+            {{ busy === 'restore' ? '恢复中…' : '确认恢复' }}
+          </button>
+          <button :disabled="busy !== ''" @click="confirmingRestore = false">取消</button>
         </div>
       </div>
     </div>
@@ -559,6 +647,76 @@ function restore() {
 
 .chan-hint.err {
   color: var(--err);
+}
+
+.hotplug-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hotplug-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #e4e7ec;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.hotplug-badge.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+.hotplug-desc {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* 开关拨杆：轨道变色 + 滑块平移，状态一眼可读。 */
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #c8ccd3;
+  border-radius: 999px;
+  background: #d4d8de;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.switch:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.switch.on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: left 0.15s ease;
+}
+
+.switch.on .switch-thumb {
+  left: 20px;
 }
 
 /* 竖排列表：行距压紧，四列对齐表头。 */

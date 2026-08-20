@@ -1,9 +1,10 @@
 // Command packportable 把 wails build 刚打出来的 exe 收成绿色版目录。
 //
-// 必须在仓库根目录跑（或传 -root）。它做三件事：
+// 必须在仓库根目录跑（或传 -root）。它做四件事：
 //  1. 把 build/bin/<名字>.exe 挪进 build/bin/<名字>/
 //  2. 把 remote / board 的出厂配置拷进去（盘上已有的不覆盖，免得重建冲掉现场改过的）
-//  3. 建好 webview2 目录，下次启动 WebView2 缓存落在这里，不用再去 %APPDATA%
+//  3. 把 netcfg 的 config 目录整份拷进去（热插拔脚本等文件现场改盘上的即可，不用重建）
+//  4. 建好 webview2 目录，下次启动 WebView2 缓存落在这里，不用再去 %APPDATA%
 //
 // netcfg 记住的地址是用出来才有的，出厂没有可拷的，不在这里造空文件。
 package main
@@ -45,10 +46,48 @@ func factorySeeds(root string) []seed {
 		{filepath.Join(root, "internal", "modules", "remote", "config", "io.json"), "remote-io.json"},
 		{filepath.Join(root, "internal", "modules", "remote", "config", "register.json"), "remote-register.json"},
 		{filepath.Join(root, "internal", "modules", "board", "config", "commands.json"), "board-commands.json"},
-		// 共享配置：host 来自 board 的出厂默认，user/password 也一并带上。
-		// 绿色版第一次打开时三个模块都读这份，不用各自再填一遍。
-		{filepath.Join(root, "internal", "modules", "board", "config", "config.json"), "toolbox-config.json"},
 	}
+}
+
+// seedSharedConfig 生成绿色版的 toolbox-config.json。host/user/password 来自
+// board 的出厂默认，但不能直拷那份文件：board 的是嵌套的 {"device":{...}}，
+// 共享配置是平的 {"host":...}——直拷会让 LoadShared 读不出 host，顶栏地址空白。
+func seedSharedConfig(root, dst string) error {
+	if fileExists(dst) {
+		fmt.Printf("保留已有 %s\n", filepath.Base(dst))
+		return nil
+	}
+	src := filepath.Join(root, "internal", "modules", "board", "config", "config.json")
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	var boardCfg struct {
+		Device struct {
+			Host     string `json:"host"`
+			User     string `json:"user"`
+			Password string `json:"password"`
+			KeyPath  string `json:"keyPath"`
+		} `json:"device"`
+	}
+	if err := json.Unmarshal(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")), &boardCfg); err != nil {
+		return fmt.Errorf("解析 %s：%w", src, err)
+	}
+	shared := struct {
+		Host     string `json:"host"`
+		User     string `json:"user"`
+		Password string `json:"password"`
+		KeyPath  string `json:"keyPath"`
+	}{boardCfg.Device.Host, boardCfg.Device.User, boardCfg.Device.Password, boardCfg.Device.KeyPath}
+	out, err := json.MarshalIndent(shared, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, out, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("写入 %s\n", filepath.Base(dst))
+	return nil
 }
 
 func pack(root string) error {
@@ -89,12 +128,34 @@ func pack(root string) error {
 		fmt.Printf("写入 %s\n", s.dst)
 	}
 
+	// 共享配置：绿色版第一次打开时三个模块都读这份，不用各自再填一遍。
+	if err := seedSharedConfig(root, filepath.Join(dest, "toolbox-config.json")); err != nil {
+		return fmt.Errorf("写共享配置：%w", err)
+	}
+
+	// netcfg 的 config 目录整份拷进绿色版。热插拔规则和脚本由 netcfg 按
+	// 「盘上优先」读取，现场要改直接改这里，不用重新构建。和出厂配置一样，
+	// 盘上已有的不覆盖。
+	configSrc := filepath.Join(root, "internal", "modules", "netcfg", "config")
+	if err := copyDirSkipExisting(configSrc, filepath.Join(dest, "config")); err != nil {
+		return fmt.Errorf("拷 config 目录：%w", err)
+	}
+
 	if err := os.MkdirAll(filepath.Join(dest, "webview2"), 0o755); err != nil {
 		return err
 	}
 
 	fmt.Printf("绿色版：%s\n", dest)
 	return nil
+}
+
+// writebackSeeds 比 factorySeeds 多一份共享配置：pack 时 toolbox-config.json 由
+// seedSharedConfig 转换生成（不是直拷，所以不在 factorySeeds 里），但回写时要把
+// 它的 host 写回 board 出厂默认。
+func writebackSeeds(root string) []seed {
+	return append(factorySeeds(root), seed{
+		filepath.Join(root, "internal", "modules", "board", "config", "config.json"), "toolbox-config.json",
+	})
 }
 
 // writeBack 把绿色版目录里改过的配置拷回源码出厂文件。
@@ -117,7 +178,7 @@ func writeBack(root string) error {
 	}
 
 	changed := 0
-	for _, s := range factorySeeds(root) {
+	for _, s := range writebackSeeds(root) {
 		from := filepath.Join(dir, s.dst)
 		if !fileExists(from) {
 			fmt.Printf("跳过 %s（绿色版里没有）\n", s.dst)
@@ -242,6 +303,33 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// copyDirSkipExisting 把 src 目录下的文件平铺拷到 dst，盘上已有的跳过。
+// config 目录只有一层文件，不做递归。
+func copyDirSkipExisting(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		to := filepath.Join(dst, e.Name())
+		if fileExists(to) {
+			fmt.Printf("保留已有 config/%s\n", e.Name())
+			continue
+		}
+		if err := copyFile(filepath.Join(src, e.Name()), to); err != nil {
+			return err
+		}
+		fmt.Printf("写入 config/%s\n", e.Name())
+	}
+	return nil
 }
 
 func fileExists(path string) bool {

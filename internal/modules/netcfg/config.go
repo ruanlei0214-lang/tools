@@ -5,7 +5,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"embedtools/internal/module"
 )
 
 // config.json 编译进产物，改完它需要重新构建才生效。
@@ -24,6 +28,18 @@ var setBridgeScript []byte
 
 //go:embed config/setWifi.sh
 var setWifiScript []byte
+
+// WiFi 热插拔开关要下发到设备的三个文件。rules 是关（只弹存储形态），
+// rules-hot-plug 是开（多两条 wlan0 add/remove 触发 fcu760k_hotplug.sh）。
+//
+//go:embed config/99-ax900-eject-usbdev.rules
+var udevRulesOff []byte
+
+//go:embed config/99-ax900-eject-usbdev.rules-hot-plug
+var udevRulesOn []byte
+
+//go:embed config/fcu760k_hotplug.sh
+var hotplugScript []byte
 
 // defaultConnectTimeout 是 connectTimeoutSeconds 省略时用的值，也是兜底配置里的值。
 // 两处共用一个常量，避免出现 0 —— ssh.ClientConfig.Timeout 为 0 表示永不超时，
@@ -73,6 +89,23 @@ func loadSettings() Settings {
 		return fallback
 	}
 	return s
+}
+
+// configFile 优先读 exe 同目录 config/ 下的同名文件：packportable 会把这份配置
+// 拷进绿色版目录，现场改脚本不用重新构建。读不到（没拷、被删）回退到编译进去的版本。
+//
+// 只有热插拔相关的三个文件走这里。setBridge.sh / setWifi.sh / config.json 是
+// 一键恢复的出厂保证，必须钉死在编译产物里，盘上改坏不能连累恢复功能。
+func configFile(name string, embedded []byte) []byte {
+	dir, err := module.DataDir()
+	if err != nil {
+		return embedded
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "config", name))
+	if err != nil || len(raw) == 0 {
+		return embedded
+	}
+	return raw
 }
 
 // parseSettings 只校验会造成实际危害的三项：端口范围、连接超时范围，以及恢复路径

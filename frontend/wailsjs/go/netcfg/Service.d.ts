@@ -10,8 +10,12 @@ export function Defaults():Promise<netcfg.Settings>;
 
 export function GetWifiAp(arg1:netcfg.Device):Promise<netcfg.WifiAp>;
 
+export function GetWifiHotplug(arg1:netcfg.Device):Promise<boolean>;
+
 export function ListPorts(arg1:netcfg.Device):Promise<Array<netcfg.Port>>;
 
 export function RestoreNetwork(arg1:netcfg.Device):Promise<void>;
+
+export function SetWifiHotplug(arg1:netcfg.Device,arg2:boolean):Promise<void>;
 
 export function TestConnection(arg1:netcfg.Device):Promise<void>;

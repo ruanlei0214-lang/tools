@@ -40,11 +40,30 @@ func TestPackAssemblesFolderAndKeepsExistingConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	netcfgDir := filepath.Join(root, "internal", "modules", "netcfg", "config")
+	if err := os.MkdirAll(netcfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(netcfgDir, "fcu760k_hotplug.sh"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(netcfgDir, "99-ax900-eject-usbdev.rules"), []byte("RULE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	dest := filepath.Join(bin, "C2toolsV9.9.9")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dest, "remote-io.json"), []byte(`{"keep":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// config 目录里盘上已有的文件也不该被出厂文件覆盖。
+	destConfig := filepath.Join(dest, "config")
+	if err := os.MkdirAll(destConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destConfig, "99-ax900-eject-usbdev.rules"), []byte("FIELD\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -67,11 +86,19 @@ func TestPackAssemblesFolderAndKeepsExistingConfig(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dest, "board-commands.json")); string(got) != `[{"factory":"commands.json"}]` {
 		t.Fatalf("缺出厂指令清单：%s", got)
 	}
-	if got, _ := os.ReadFile(filepath.Join(dest, "toolbox-config.json")); string(got) != `{"device":{"host":"192.168.1.136","user":"root"}}` {
-		t.Fatalf("缺共享配置：%s", got)
+	// 共享配置是平铺格式（{"host":...}），从 board 的嵌套出厂配置转换而来。
+	wantShared := "{\n  \"host\": \"192.168.1.136\",\n  \"user\": \"root\",\n  \"password\": \"\",\n  \"keyPath\": \"\"\n}"
+	if got, _ := os.ReadFile(filepath.Join(dest, "toolbox-config.json")); string(got) != wantShared {
+		t.Fatalf("共享配置格式不对：%s", got)
 	}
 	if st, err := os.Stat(filepath.Join(dest, "webview2")); err != nil || !st.IsDir() {
 		t.Fatal("应当建好 webview2 目录")
+	}
+	if got, _ := os.ReadFile(filepath.Join(destConfig, "fcu760k_hotplug.sh")); string(got) != "#!/bin/sh\n" {
+		t.Fatalf("netcfg config 没进绿色版：%s", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(destConfig, "99-ax900-eject-usbdev.rules")); string(got) != "FIELD\n" {
+		t.Fatalf("config 里已有文件被覆盖了：%s", got)
 	}
 }
 

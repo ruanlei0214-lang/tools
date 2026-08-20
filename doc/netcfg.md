@@ -1,6 +1,6 @@
 # 网络配置（netcfg）
 
-当前版本 **V1.0.23**，声明在 `frontend/src/modules/netcfg/module.ts`。
+当前版本 **V1.0.24**，声明在 `frontend/src/modules/netcfg/module.ts`。
 
 ## 做什么
 
@@ -20,8 +20,8 @@
 页面收成三块：**设备 → 网口 → 改地址**。地址在顶栏，本页不再重复。
 
 1. **设备**：上一行是刷新、一键恢复和状态；连上之后出现「WiFi 设置」区：WiFi 名、
-   密码（密码框，输入不可见）、频段、信道、应用并重启。没刷新过不摆后面这些，免误点。
-   「应用并重启」把 WiFi 名、密码（`wifiAp` 第 1、2 行）、频段（第 4 行）和信道
+   密码（密码框，输入不可见）、频段、信道、下发配置。没刷新过不摆后面这些，免误点。
+   「下发配置」把 WiFi 名、密码（`wifiAp` 第 1、2 行）、频段（第 4 行）和信道
    （第 3 行）写进配置，然后后台整段重启 WiFi。
    `wifiAp` 固定在 `/opt/wifiAp`（`setWifi.sh` 在 `/opt` 下按相对路径读它），不去其他
    目录找；文件不存在时自动按出厂默认值创建（SSID `760K`、密码 `codroid123`、5G 信道 149）。
@@ -33,7 +33,12 @@
    信道范围按频段约束并显示在控件下方：5G 只允许非 DFS 信道（36/40/44/48/149/153/157/161/165），
    2.4G 允许 1-13。DFS 信道（52-64、100-144）被单独点名：输入时提示条变红说明
    「雷达避让会让热点长时间不可用」，后端报错同样点名 DFS，而不是只说「不在列表里」。
-   「一键恢复网络」删除 `restoreFile`，替换 `/opt/setBridge.sh`、`/opt/setWifi.sh`
+   WiFi 区底部是「USB WiFi 热插拔」开关，状态从设备 udev 规则里读（规则带
+   `fcu760k_hotplug` 即为开）。开启：先 `mount -o remount,rw /`，再把热插拔版规则
+   写到 `/lib/udev/rules.d/99-ax900-eject-usbdev.rules`，并把 `fcu760k_hotplug.sh`
+   写到 `/opt/shell/`；关闭只把规则盖回出厂版（恢复脚本留着无害，规则不指向它就不会跑）。
+   改写的是 udev 规则，重启控制器后生效，执行完弹窗提醒重启。
+   「一键恢复网络」先弹确认框，确认后删除 `restoreFile`，替换 `/opt/setBridge.sh`、`/opt/setWifi.sh`
    为随包出厂版本，弹窗提醒重启控制器，工具不代劳。
    桥接模式下现场 DHCP 在有线那头，拔掉网线后 WiFi 直连的电脑拿不到地址。
    `setWifi.sh` 带拔线兜底：看门狗每 3 秒看一次 `lan1` 载波，没载波时在 `br0` 上
@@ -217,6 +222,8 @@ WiFi 配置文件 `wifiAp` 固定在设备 `/opt/wifiAp`，不可配置；不存
 | `ApplyConfig` | `(Device, Config) => Promise<void>` | 下发新地址 |
 | `GetWifiAp` | `(Device) => Promise<WifiAp>` | 读 wifiAp 的 WiFi 名、密码、信道与频段，预填进编辑框 |
 | `ApplyWifi` | `(Device, string, string, string, number) => Promise<string>` | 写 WiFi 名、密码、频段与信道（信道 0 表示保持现状，与新频段不符时拉回默认值），然后 `nohup` 后台整段重启 WiFi，立刻返回 |
+| `GetWifiHotplug` | `(Device) => Promise<boolean>` | 读 USB WiFi 热插拔开关状态（udev 规则里带 `fcu760k_hotplug` 即为开） |
+| `SetWifiHotplug` | `(Device, boolean) => Promise<void>` | 开/关 USB WiFi 热插拔：先 `mount -o remount,rw /`，再写 udev 规则（开启时连恢复脚本一起写），重启后生效 |
 | `RestoreNetwork` | `(Device) => Promise<void>` | 删除 `restoreFile`，并替换 `/opt/setBridge.sh`、`/opt/setWifi.sh` 为随包出厂版本 |
 | `Defaults` | `() => Promise<Settings>` | 返回页面默认值；地址和 SSH 凭据优先用共享配置 `toolbox-config.json` |
 
@@ -328,6 +335,12 @@ Windows 签出的 CRLF 会让设备报 `/bin/sh\r: not found`）。重启由现�
 跨模块的共享控件。也没用 `window.confirm`：它在 WebView2 里的外观和应用风格脱节，
 而且会阻塞渲染。
 
+**热插拔的三个文件盘上优先，其余配置钉死在产物里。** 构建时 packportable 会把整个
+`config/` 目录拷进绿色版（盘上已有的不覆盖）。热插拔规则和 `fcu760k_hotplug.sh`
+读取时先看 exe 同目录 `config/` 下有没有同名文件，有就用盘上的——现场调脚本不用重新
+构建；读不到才回退到 `go:embed` 的版本。`setBridge.sh` / `setWifi.sh` / `config.json`
+不走这条路：它们是一键恢复的出厂保证，盘上改坏不能连累恢复功能。
+
 ## 已知限制
 
 **面板对应关系写死，只适用当前机型。** 换一台接线不同的设备，界面会指错口——而且不会
@@ -392,8 +405,12 @@ internal/modules/netcfg/state_test.go   地址记忆的单元测试
 internal/modules/netcfg/persist_test.go 持久化写入命令的单元测试
 internal/modules/netcfg/wifi.go         读改 wifiAp 信道与频段、后台重启 WiFi
 internal/modules/netcfg/wifi_test.go    信道/频段解析、校验与写入命令的单元测试
+internal/modules/netcfg/hotplug.go      USB WiFi 热插拔开关的读取与下发
 internal/modules/netcfg/config/setBridge.sh  随包的网桥启动脚本，一键恢复时替换到 /opt
 internal/modules/netcfg/config/setWifi.sh    随包的 WiFi 启动脚本，读 wifiAp 第 4 行频段
+internal/modules/netcfg/config/99-ax900-eject-usbdev.rules           出厂 udev 规则（热插拔关）
+internal/modules/netcfg/config/99-ax900-eject-usbdev.rules-hot-plug  热插拔版 udev 规则（开）
+internal/modules/netcfg/config/fcu760k_hotplug.sh                    wlan0 插拔后恢复 AP 的脚本
 internal/modules/netcfg/ssh.go          SSH 连接与命令执行
 internal/modules/netcfg/ssh_test.go     连接超时（含握手）的回归测试
 internal/modules/netcfg/parse.go        输出解析与配置校验

@@ -18,12 +18,20 @@ export function GetWifiAp(arg1) {
   return window['go']['netcfg']['Service']['GetWifiAp'](arg1);
 }
 
+export function GetWifiHotplug(arg1) {
+  return window['go']['netcfg']['Service']['GetWifiHotplug'](arg1);
+}
+
 export function ListPorts(arg1) {
   return window['go']['netcfg']['Service']['ListPorts'](arg1);
 }
 
 export function RestoreNetwork(arg1) {
   return window['go']['netcfg']['Service']['RestoreNetwork'](arg1);
+}
+
+export function SetWifiHotplug(arg1, arg2) {
+  return window['go']['netcfg']['Service']['SetWifiHotplug'](arg1, arg2);
 }
 
 export function TestConnection(arg1) {

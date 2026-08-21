@@ -14,6 +14,11 @@ export interface ModuleManifest {
    * 没有任何机制会发现。
    */
   version: string
+  /**
+   * 简要操作说明，一行一条，显示在「关于」弹窗的当前模块组里。
+   * 只写最容易问出口的那几步，不是文档的替代品。
+   */
+  guide?: string[]
   view: Component
 }
 

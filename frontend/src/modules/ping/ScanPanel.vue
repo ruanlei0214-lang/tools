@@ -1,6 +1,7 @@
 <script lang="ts" setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { LocalIfaces, Scan } from '../../../wailsjs/go/ping/Service'
+import { EventsOff, EventsOn } from '../../../wailsjs/runtime'
 import type { ping } from '../../../wailsjs/go/models'
 
 // 扫描目标拆成「前三段 + 末段起止」三个框：网卡下拉负责填前三段，
@@ -30,6 +31,13 @@ function conflictText(c: ping.Conflict) {
 }
 
 onMounted(async () => {
+  // 扫描途中后端每 ping 通一台推一帧，扫到一个显示一个；推来的只有 IP 和延迟，
+  // 设备名和 MAC 等 Scan 返回的完整结果整体替换时补上。
+  EventsOn('ping:scan-found', (h: ping.ScanHost) => {
+    if (!scanBusy.value) return
+    insertHost(h)
+    scanStatus.value = { kind: 'info', text: `扫描中… 已发现 ${hosts.value.length} 台` }
+  })
   try {
     ifaces.value = (await LocalIfaces()) ?? []
     if (ifaces.value.length) prefix.value = ifaces.value[0].segment
@@ -37,6 +45,24 @@ onMounted(async () => {
     // 预填不上就留空，不挡用户手输。
   }
 })
+
+onUnmounted(() => EventsOff('ping:scan-found'))
+
+function ipLess(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < 4; i++) {
+    if (pa[i] !== pb[i]) return pa[i] < pb[i]
+  }
+  return false
+}
+
+// insertHost 按 IP 顺序插入新发现的设备；已存在（迟到的重复推送）就跳过。
+function insertHost(h: ping.ScanHost) {
+  if (hosts.value.some((x) => x.ip === h.ip)) return
+  const i = hosts.value.findIndex((x) => ipLess(h.ip, x.ip))
+  hosts.value.splice(i < 0 ? hosts.value.length : i, 0, h)
+}
 
 // composeTarget 把三个框拼成后端认识的区间写法。前三段里多带了末段
 // （比如直接粘了个完整 IP）就砍掉，以两个数字框为准。
@@ -57,6 +83,7 @@ async function doScan() {
   scanStatus.value = { kind: 'info', text: '扫描中…' }
   try {
     const r = await Scan(target)
+    // 完整结果整体替换：途中推上来的行只有 IP 和延迟，这里补上设备名和 MAC。
     hosts.value = r.hosts ?? []
     conflicts.value = r.conflicts ?? []
     const base = `在线 ${hosts.value.length} 台 / 共扫 ${r.total} 个地址，用时 ${(r.elapsedMs / 1000).toFixed(1)}s`

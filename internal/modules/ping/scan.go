@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ScanHost 是网段里一台在线的设备。Name / MAC 拿不到时留空：跨网段的 MAC
@@ -50,9 +52,17 @@ const (
 	dnsTimeout   = 300 * time.Millisecond
 )
 
+// eventScanFound 是扫描期间每发现一台在线设备就推一次的事件。推的是不完整的
+// ScanHost（只有 IP 和延迟）：设备名和 MAC 要等扫完反查才有，Scan 最后返回的
+// 完整结果会把它们补上。
+const eventScanFound = "ping:scan-found"
+
 // Scan 扫 input 里的网段并返回在线设备。input 用逗号、分号、空格或换行分隔多段，
 // 每段可以是 CIDR（192.168.1.0/24）、前三段简写（192.168.1）、
 // 末段区间（192.168.1.10-100）或单个 IP。
+//
+// 扫描途中每 ping 通一台就往前端推一次 eventScanFound，界面扫到一个显示一个；
+// 返回的仍是完整结果，前端拿它整体替换，补上名字和 MAC。
 func (s *Service) Scan(input string) (ScanResult, error) {
 	addrs, err := parseSegments(input)
 	if err != nil {
@@ -64,7 +74,11 @@ func (s *Service) Scan(input string) (ScanResult, error) {
 	// 变了，就是有不止一台设备在应答它——这是没有管理员权限时抓 IP 冲突
 	// 最便宜的办法（原始 ARP 报文要管理员/Npcap，不考虑）。
 	samples := []map[string]string{arpTable()}
-	alive := pingAll(addrs)
+	alive := pingAll(addrs, func(p pinged) {
+		if s.ctx != nil {
+			runtime.EventsEmit(s.ctx, eventScanFound, ScanHost{IP: p.addr.String(), RttMs: p.rttMs})
+		}
+	})
 	samples = append(samples, arpTable())
 	names := resolveNames(alive)
 	samples = append(samples, arpTable())
@@ -227,7 +241,9 @@ type pinged struct {
 	rttMs float64
 }
 
-func pingAll(addrs []netip.Addr) []pinged {
+// pingAll 并发探测所有地址，onFound 在每 ping 通一台时回调（在扫描协程里，
+// 要快，别在里面做重活）。返回按 IP 排好序的在线列表。
+func pingAll(addrs []netip.Addr, onFound func(pinged)) []pinged {
 	var mu sync.Mutex
 	var alive []pinged
 	sem := make(chan struct{}, scanConcurrency)
@@ -239,9 +255,13 @@ func pingAll(addrs []netip.Addr) []pinged {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			if rtt, ok := pingOnce(a.String()); ok {
+				p := pinged{addr: a, rttMs: rtt}
 				mu.Lock()
-				alive = append(alive, pinged{addr: a, rttMs: rtt})
+				alive = append(alive, p)
 				mu.Unlock()
+				if onFound != nil {
+					onFound(p)
+				}
 			}
 		}()
 	}

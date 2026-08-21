@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { GetIO, PulseIO, SetIO, SetIOForcedAll, ToggleIO } from '../../../wailsjs/go/remote/Service'
 import type { remote } from '../../../wailsjs/go/models'
 import { useActivePolling } from '../../shell/polling'
+import { confirmDialog } from '../../shell/dialog'
 import PointEditor from './PointEditor.vue'
 import { usePanelEdit } from './usePanelEdit'
 
@@ -201,8 +202,13 @@ function savePanel() {
   })
 }
 
-function resetPanel() {
-  if (!window.confirm('把这一页的点位清单恢复成出厂默认？现场改过的这一份会被删掉。')) return
+async function resetPanel() {
+  const ok = await confirmDialog('把这一页的点位清单恢复成出厂默认？现场改过的这一份会被删掉。', {
+    title: '恢复默认',
+    danger: true,
+    confirmText: '恢复默认',
+  })
+  if (!ok) return
   return act('reset', async () => {
     emit('config-updated', await resetDraft())
     banner.value = { kind: 'info', text: '已恢复出厂默认点位' }
@@ -218,11 +224,11 @@ function exportPanel() {
   })
 }
 
-function importPanel() {
+async function importPanel() {
   const msg = editing.value
     ? '导入会替换当前这一页的点位清单，未保存的编辑会丢掉。继续？'
     : '导入会替换当前这一页的点位清单，继续？'
-  if (!window.confirm(msg)) return
+  if (!(await confirmDialog(msg, { title: '导入点位' }))) return
   return act('import', async () => {
     const r = await importFile()
     if (r.canceled) return

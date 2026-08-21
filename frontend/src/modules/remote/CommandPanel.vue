@@ -2,10 +2,11 @@
 import { ref } from 'vue'
 import { GetRobotStatus, RebootController } from '../../../wailsjs/go/remote/Service'
 import type { remote } from '../../../wailsjs/go/models'
+import { alertDialog, confirmDialog } from '../../shell/dialog'
 
 // 指令页：重启控制器。页面上不读状态——状态只在点重启这一刻由后端读：
 // 读不到、读出来不是「未使能」，都不许重启。重启指令本身不显示给用户。
-defineProps<{
+const props = defineProps<{
   connected: boolean
 }>()
 const emit = defineEmits<{
@@ -18,11 +19,17 @@ const banner = ref<{ kind: 'ok' | 'err'; text: string } | null>(null)
 // 禁止重启是安全相关的拦截：弹窗警告 + 状态条各来一份——只滚一行小字在现场容易被忽略。
 function refuse(msg: string) {
   banner.value = { kind: 'err', text: msg }
-  window.alert(msg)
+  alertDialog(msg, '禁止重启')
 }
 
 async function reboot() {
   if (busy.value) return
+  // 按钮永远能点：不能重启的情况（没连接、读不到状态、已使能）都弹窗报警，
+  // 而不是把按钮灰掉让人猜为什么点不动。
+  if (!props.connected) {
+    refuse('尚未连接控制器，禁止重启：请先在顶栏点「连接」')
+    return
+  }
   busy.value = true
   try {
     // 读不到状态就不许重启：状态确认不了时宁可误拦。
@@ -40,11 +47,9 @@ async function reboot() {
       refuse(`机器人当前处于「${st.stateName}」，不允许重启：请先把机器人打到未使能`)
       return
     }
-    const ok = window.confirm(
-      '确认重启控制器？\n\n' +
-        '· 重启只作用于控制器，机器人本体不会随之重启\n' +
-        '· 请确认现场已处于安全状态\n' +
-        '· 重启后连接会断开，需要等控制器起来后重新连接',
+    const ok = await confirmDialog(
+      '重启只作用于控制器，机器人本体不会随之重启。\n请确认现场已处于安全状态。\n\n重启后连接会断开，需要等控制器起来后重新连接。',
+      { title: '重启控制器', danger: true, confirmText: '重启' },
     )
     if (!ok) return
     // 确认之后后端还会再查一次状态，防的是确认期间有人把使能打开。
@@ -77,8 +82,7 @@ async function reboot() {
       </p>
       <button
         class="danger"
-        :disabled="!connected || busy"
-        :title="connected ? '重启前会先确认机器人处于未使能' : '先连接控制器'"
+        title="重启前会先确认机器人处于未使能；未连接、已使能、读不到状态都会弹窗报警"
         @click="reboot"
       >
         {{ busy ? '处理中…' : '重启控制器' }}

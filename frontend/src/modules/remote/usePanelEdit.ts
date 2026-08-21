@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { ExportPanel, ImportPanel, ResetPanel, SavePanel } from '../../../wailsjs/go/remote/Service'
 import type { remote } from '../../../wailsjs/go/models'
+import { confirmDialog } from '../../shell/dialog'
 
 // IO 页与寄存器页的编辑动作完全一样（增删点位、增删分组、改组名、保存、恢复默认），
 // 只有读写点位的方式不同。这些动作放在这里共用，两页各写一份的话改了一边忘了另一边，
@@ -77,13 +78,15 @@ export function usePanelEdit(getTab: () => remote.Tab, defaultType: string) {
     adding.value = true
   }
 
-  function removeGroup(gi: number): boolean {
+  async function removeGroup(gi: number): Promise<boolean> {
     const g = draft.value?.groups?.[gi]
     if (!g) return false
     const n = g.points?.length ?? 0
-    if (!window.confirm(`删除分组「${g.title || '未命名'}」？这一组有 ${n} 个点位，会一起删掉。`)) {
-      return false
-    }
+    const ok = await confirmDialog(
+      `删除分组「${g.title || '未命名'}」？这一组有 ${n} 个点位，会一起删掉。`,
+      { title: '删除分组', danger: true, confirmText: '删除' },
+    )
+    if (!ok) return false
     draft.value!.groups!.splice(gi, 1)
     editAt.value = null
     adding.value = false
@@ -121,10 +124,15 @@ export function usePanelEdit(getTab: () => remote.Tab, defaultType: string) {
     adding.value = false
   }
 
-  function removePoint(gi: number, pi: number): boolean {
+  async function removePoint(gi: number, pi: number): Promise<boolean> {
     const p = draft.value?.groups?.[gi]?.points?.[pi]
     if (!p) return false
-    if (!window.confirm(`删除点位「${p.label || `${p.type}${p.port}`}」？`)) return false
+    const ok = await confirmDialog(`删除点位「${p.label || `${p.type}${p.port}`}」？`, {
+      title: '删除点位',
+      danger: true,
+      confirmText: '删除',
+    })
+    if (!ok) return false
     draft.value!.groups![gi].points!.splice(pi, 1)
     editAt.value = null
     adding.value = false

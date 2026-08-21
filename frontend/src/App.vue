@@ -4,6 +4,7 @@ import { WindowSetAlwaysOnTop } from '../wailsjs/runtime/runtime'
 import { modules } from './shell/registry'
 import { APP_NAME, APP_VERSION } from './shell/version'
 import { conn, connectAll, disconnectAll, loadShared, persistHost } from './shell/connection'
+import AppDialog from './shell/AppDialog.vue'
 
 const activeId = ref(modules.find((m) => m.id === 'netcfg')?.id ?? modules[0]?.id ?? '')
 const active = computed(() => modules.find((m) => m.id === activeId.value))
@@ -167,8 +168,7 @@ function toggleConnect() {
     </main>
   </div>
 
-  <div v-if="showAbout" class="modal-mask" @click.self="showAbout = false">
-    <div class="modal">
+  <div v-if="showAbout" class="modal-mask" @click.self="showAbout = false">    <div class="modal">
       <h2 class="modal-title">关于</h2>
       <!-- 分两组：工具箱整体，和当前所在的模块。只讲当前模块——模块各自独立编号，
            把没在用的模块也铺出来，等于让人在一堆数字里找自己要的那个。 -->
@@ -192,6 +192,14 @@ function toggleConnect() {
           <dd class="about-ver">{{ active.version }}</dd>
           <dt>说明</dt>
           <dd>{{ active.description }}</dd>
+          <template v-if="active.guide?.length">
+            <dt>操作</dt>
+            <dd>
+              <ul class="about-guide">
+                <li v-for="(line, i) in active.guide" :key="i">{{ line }}</li>
+              </ul>
+            </dd>
+          </template>
         </dl>
       </section>
       <div class="modal-actions">
@@ -199,6 +207,9 @@ function toggleConnect() {
       </div>
     </div>
   </div>
+
+  <!-- 应用内 alert/confirm 的宿主，替代原生弹窗。 -->
+  <AppDialog />
 </template>
 
 <style scoped>
@@ -398,8 +409,8 @@ function toggleConnect() {
 }
 
 .modal {
-  width: 380px;
-  padding: 18px 20px;
+  width: 480px;
+  padding: 16px 20px;
   background: var(--panel);
   border-radius: var(--radius);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
@@ -407,7 +418,7 @@ function toggleConnect() {
 
 .modal-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -431,9 +442,9 @@ function toggleConnect() {
 .about-list {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 6px 14px;
+  gap: 5px 14px;
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -447,6 +458,15 @@ function toggleConnect() {
 
 .about-ver {
   font-variant-numeric: tabular-nums;
+}
+
+.about-guide {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.about-guide li {
+  margin: 2px 0;
 }
 
 .about-id {

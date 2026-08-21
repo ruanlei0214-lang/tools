@@ -8,6 +8,7 @@ import {
   SaveCommands,
 } from '../../../wailsjs/go/board/Service'
 import type { board } from '../../../wailsjs/go/models'
+import { confirmDialog } from '../../shell/dialog'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import TerminalPane from './TerminalPane.vue'
 
@@ -230,11 +231,14 @@ function save() {
   })
 }
 
-function remove(c: board.Command) {
+async function remove(c: board.Command) {
   // 删按钮只是删清单里的一行，不动设备上任何东西，但攒了一串按钮之后误删也挺烦。
-  if (!window.confirm(`删除按钮「${c.name}」？\n\n${c.command}`)) {
-    return
-  }
+  const ok = await confirmDialog(`删除按钮「${c.name}」？\n\n${c.command}`, {
+    title: '删除指令',
+    danger: true,
+    confirmText: '删除',
+  })
+  if (!ok) return
   return act(`del-${c.id}`, async () => {
     const saved = await SaveCommands(commands.value.filter((x) => x.id !== c.id).map((x) => ({ ...x })))
     applyList(saved)
@@ -258,11 +262,11 @@ function exportList() {
   })
 }
 
-function importList() {
+async function importList() {
   const msg = editing.value
     ? '导入会替换当前指令清单，未保存的编辑会丢掉。继续？'
     : '导入会替换当前指令清单，继续？'
-  if (!window.confirm(msg)) return
+  if (!(await confirmDialog(msg, { title: '导入指令' }))) return
   return act('import', async () => {
     const r = await ImportCommands()
     if (r.canceled) return

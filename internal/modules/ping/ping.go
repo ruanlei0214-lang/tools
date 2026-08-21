@@ -24,9 +24,16 @@ func (m *Module) ID() string { return "ping" }
 
 func (m *Module) Bindings() []any { return []any{m.svc} }
 
+// Startup 收下 Wails 的上下文。扫描网段时往前端推「又发现一台」的事件要靠它。
+func (m *Module) Startup(ctx context.Context) { m.svc.ctx = ctx }
+
 // Service 暴露给前端。长 ping 在后台 goroutine 里跑，日志攒在缓冲区，
 // 前端轮询 ReadPing 取走——和终端模块读输出的方式一样。
 type Service struct {
+	// ctx 是 Wails 的运行时上下文，扫描时的增量事件从它发。Startup 之前为 nil，
+	// 那时事件直接不发，扫描本身不受影响。
+	ctx context.Context
+
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 	running bool

@@ -16,6 +16,7 @@ import {
 } from '../../../wailsjs/go/board/Service'
 import { OnFileDrop, OnFileDropOff } from '../../../wailsjs/runtime/runtime'
 import type { board } from '../../../wailsjs/go/models'
+import { confirmDialog } from '../../shell/dialog'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{ connected: boolean; defaultPath: string }>()
@@ -290,7 +291,12 @@ async function doUpload(locals: string[]) {
   let res = await UploadMany(locals, listedPath.value, false)
   if (res.needsConfirm) {
     const names = (res.conflicts ?? []).join('\n')
-    if (!window.confirm(`设备上已有同名项，覆盖？\n\n${names}`)) {
+    const ok = await confirmDialog(`设备上已有同名项，覆盖？\n\n${names}`, {
+      title: '覆盖确认',
+      danger: true,
+      confirmText: '覆盖',
+    })
+    if (!ok) {
       banner.value = { kind: 'info', text: '已取消上传' }
       return
     }
@@ -463,7 +469,7 @@ function mkdir() {
   })
 }
 
-function remove(list: board.Entry[]) {
+async function remove(list: board.Entry[]) {
   if (!list.length) return
   const multi = list.length > 1
   const hint = multi
@@ -472,7 +478,12 @@ function remove(list: board.Entry[]) {
       ? '将删除整个目录（含里面的文件）'
       : '删除这个文件'
   const detail = multi ? list.map((e) => e.name).join('、') : remoteOf(list[0])
-  if (!window.confirm(`${hint}？\n\n${detail}`)) return
+  const ok = await confirmDialog(`${hint}？\n\n${detail}`, {
+    title: '删除',
+    danger: true,
+    confirmText: '删除',
+  })
+  if (!ok) return
   const cmd =
     multi || list[0].isDir
       ? `rm -rf ${list.map((e) => shQuote(remoteOf(e))).join(' ')}`

@@ -543,6 +543,7 @@ func TestServiceConfigIsUsable(t *testing.T) {
 // 不用重启程序，也不用重新构建。
 func TestServiceSavePanelTakesEffect(t *testing.T) {
 	useTempConfigDir(t)
+	showAllTabs(t)
 	s := newService()
 
 	saved, err := s.SavePanel(Tab{
@@ -576,6 +577,7 @@ func TestServiceSavePanelTakesEffect(t *testing.T) {
 
 func TestServiceSavePanelRejectsBadPointsWithoutWriting(t *testing.T) {
 	useTempConfigDir(t)
+	showAllTabs(t)
 	s := newService()
 	before := s.Config()
 
@@ -627,6 +629,7 @@ func TestServiceSaveKeepsConnection(t *testing.T) {
 
 func TestServiceResetGoesBackToFactoryDefaults(t *testing.T) {
 	useTempConfigDir(t)
+	showAllTabs(t)
 	s := newService()
 	factory := s.Config()
 
@@ -638,7 +641,8 @@ func TestServiceResetGoesBackToFactoryDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 连接参数有现场覆盖时，恢复面板不该把它一起抹掉。
-	if err := writeStore(deviceFileName, []byte(`{"device":{"host":"10.9.8.7"}}`)); err != nil {
+	if err := writeStore(deviceFileName, []byte(
+		`{"device":{"host":"10.9.8.7"},"tabVisibility":{"io":true,"register":true,"command":true}}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -715,6 +719,7 @@ func TestServiceRejectsNegativeRegisterAddress(t *testing.T) {
 
 func TestServiceApplyImportedPanelTakesEffect(t *testing.T) {
 	useTempConfigDir(t)
+	showAllTabs(t)
 	s := newService()
 
 	raw := []byte(`{
@@ -745,6 +750,7 @@ func TestServiceApplyImportedPanelTakesEffect(t *testing.T) {
 
 func TestServiceApplyImportedPanelRejectsBadPointsWithoutWriting(t *testing.T) {
 	useTempConfigDir(t)
+	showAllTabs(t)
 	s := newService()
 	before := s.Config()
 
@@ -783,6 +789,7 @@ func TestServiceApplyImportedPanelRejectsWrongKind(t *testing.T) {
 
 func TestServicePanelBytesExportsCurrent(t *testing.T) {
 	useTempConfigDir(t)
+	showAllTabs(t)
 	s := newService()
 	if _, err := s.SavePanel(Tab{
 		Kind:   kindIO,

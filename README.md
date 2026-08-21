@@ -51,6 +51,15 @@ go test ./...                    # 后端单元测试
 }
 ```
 
+条目也可以是带选项的对象。目前唯一的选项是 remote 的 `tabs`——构建期标签页白名单：
+
+```json
+"netcfg-ping-remote": ["netcfg", "ping", { "module": "remote", "tabs": ["command"] }]
+```
+
+被裁掉的页签不进产物，现场配置改不回来，和裁掉整个模块一个道理。
+`tabs` 拼错（比如 `commnad`）或给别的模块会在生成期直接报错。
+
 `build.ps1` 会先按 profile 生成接线代码，再构建。也可以分开跑：
 
 ```powershell

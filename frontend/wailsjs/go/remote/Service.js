@@ -26,6 +26,10 @@ export function GetRegisters(arg1) {
   return window['go']['remote']['Service']['GetRegisters'](arg1);
 }
 
+export function GetRobotStatus() {
+  return window['go']['remote']['Service']['GetRobotStatus']();
+}
+
 export function ImportPanel(arg1) {
   return window['go']['remote']['Service']['ImportPanel'](arg1);
 }
@@ -36,6 +40,10 @@ export function PulseIO(arg1, arg2, arg3, arg4) {
 
 export function PulseRegister(arg1, arg2, arg3, arg4) {
   return window['go']['remote']['Service']['PulseRegister'](arg1, arg2, arg3, arg4);
+}
+
+export function RebootController() {
+  return window['go']['remote']['Service']['RebootController']();
 }
 
 export function ResetPanel(arg1) {

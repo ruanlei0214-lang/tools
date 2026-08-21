@@ -20,6 +20,10 @@ import (
 // 中间隔着的反向代理或控制器自己的空闲超时会把它悄悄掐掉，等下次点按钮才发现。
 const pingInterval = 30 * time.Second
 
+// writeTimeout 是 send 的写超时。call 的写超时由调用方给，send 没有响应可等，
+// 写本身不该无限期堵着。
+const writeTimeout = 5 * time.Second
+
 // probePaths 是配置里的路径连不上时依次再试的候选。
 //
 // 接口文档只写了 TCP 那一套，没说 WebSocket 挂在哪个路径上。与其让现场对着
@@ -40,6 +44,9 @@ type client struct {
 
 	mu      sync.Mutex
 	pending map[string]chan envelope
+	// onPush 处理「没人等的包」：订阅推送（publish/...）走这里。建连后由 Service 挂上，
+	// 读写都在 mu 保护下——readLoop 从连接建立起就在跑，直接写字段会撞上它。
+	onPush func(ty string, db json.RawMessage)
 
 	seq       atomic.Uint64
 	closeOnce sync.Once
@@ -161,13 +168,23 @@ func (c *client) readLoop() {
 		if ok {
 			delete(c.pending, id)
 		}
+		push := c.onPush
 		c.mu.Unlock()
 
 		if ok {
 			ch <- resp
+		} else if push != nil && resp.Ty != "" {
+			// 没人等的包是控制器的主动推送（订阅的状态、报警之类），交给 onPush。
+			push(resp.Ty, resp.DB)
 		}
-		// 没人等的包是控制器的主动推送（状态、报警之类），这里用不上，丢掉。
 	}
+}
+
+// setOnPush 挂上推送处理。在持锁读它的 readLoop 面前，直接赋值不是安全的。
+func (c *client) setOnPush(fn func(ty string, db json.RawMessage)) {
+	c.mu.Lock()
+	c.onPush = fn
+	c.mu.Unlock()
 }
 
 // pingLoop 定期发控制帧保活。WriteControl 可以和普通写并发，不用抢 writeMu。
@@ -225,11 +242,24 @@ func (c *client) nextID() string {
 	return fmt.Sprintf("t%d-%d", time.Now().UnixNano(), c.seq.Add(1))
 }
 
+// writeFrame 串行写一帧。gorilla 不允许并发写，所以抢 writeMu。
+// 写失败说明连接已经不可用（写到一半断掉，帧边界就乱了），顺手把整条连接判死。
+func (c *client) writeFrame(payload []byte, timeout time.Duration) error {
+	c.writeMu.Lock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(timeout))
+	err := c.conn.WriteMessage(websocket.TextMessage, payload)
+	c.writeMu.Unlock()
+	if err != nil {
+		c.closeWith(fmt.Errorf("发送失败：%v", err))
+		return fmt.Errorf("发送请求失败：%v", err)
+	}
+	return nil
+}
+
 // call 发一条请求并等自己那条响应。一次调用只发一帧，失败不重发。
 //
 // 不重发是有意的：这些请求全是 IO 动作，重发等于让现场的气缸多动一次。发送失败时
-// 连接本身已经不可用了（WebSocket 写到一半断掉，帧边界就乱了，gorilla 也会把这条
-// 连接标死），所以顺手关掉整条连接，让界面如实退回未连接。
+// 连接本身已经不可用了，所以顺手关掉整条连接，让界面如实退回未连接。
 //
 // 响应超时是另一码事：只结束这次等待，不动连接——控制器慢一次不代表连接坏了，
 // 把连接拆了反而让后面每个按钮都要重连。
@@ -254,13 +284,8 @@ func (c *client) call(ty string, db any, timeout time.Duration) (json.RawMessage
 		c.mu.Unlock()
 	}()
 
-	c.writeMu.Lock()
-	_ = c.conn.SetWriteDeadline(time.Now().Add(timeout))
-	werr := c.conn.WriteMessage(websocket.TextMessage, payload)
-	c.writeMu.Unlock()
-	if werr != nil {
-		c.closeWith(fmt.Errorf("发送失败：%v", werr))
-		return nil, fmt.Errorf("发送请求失败：%v", werr)
+	if err := c.writeFrame(payload, timeout); err != nil {
+		return nil, err
 	}
 
 	timer := time.NewTimer(timeout)
@@ -277,6 +302,20 @@ func (c *client) call(ty string, db any, timeout time.Duration) (json.RawMessage
 	case <-timer.C:
 		return nil, fmt.Errorf("等待 %s 响应超时（%s）", ty, timeout)
 	}
+}
+
+// subscribe 发一帧订阅请求。订阅报文只能有 ty：实测这台控制器对带 id、
+// 带 "db":null 的订阅都直接沉默——不报错也不推数据，订阅方只能干等超时。
+// 文档里的订阅示例同样只有 ty。订阅也没有响应可等，真正的数据由推送送回来，见 setOnPush。
+func (c *client) subscribe(ty string) error {
+	if !c.alive() {
+		return c.closedErr()
+	}
+	payload, err := json.Marshal(map[string]any{"ty": ty})
+	if err != nil {
+		return fmt.Errorf("编码请求失败：%v", err)
+	}
+	return c.writeFrame(payload, writeTimeout)
 }
 
 // normalizeID 把响应里的 id 还原成我们发出去的那个字符串。请求 id 一律是字符串，

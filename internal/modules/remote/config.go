@@ -54,18 +54,14 @@ type Settings struct {
 	RefreshIntervalMs int `json:"refreshIntervalMs"`
 	// Tabs 决定页面里有几个标签页、分别是什么。顺序即显示顺序。
 	Tabs []Tab `json:"tabs"`
+	// TabVisibility 决定三个标签页各自显不显示，键是 kind（io / register / command）。
+	// 没写的键按显示处理——现场配置只需要列出要藏的那个。指令页不是点位面板，
+	// 没有自己的文件，显不显示只由这里决定。
+	TabVisibility map[string]bool `json:"tabVisibility"`
 	// ConfigDir 是现场配置所在的目录，也就是 exe 所在目录。
 	ConfigDir string `json:"configDir"`
 	// Warning 非空表示某份配置不可用，当前这些值来自能读出来的文件或内置兜底。
 	Warning string `json:"warning"`
-}
-
-// DeviceSettings 是连接区那一组可改的值，界面保存连接参数时整组送回来。
-type DeviceSettings struct {
-	Device                Device `json:"device"`
-	ConnectTimeoutSeconds int    `json:"connectTimeoutSeconds"`
-	RequestTimeoutSeconds int    `json:"requestTimeoutSeconds"`
-	RefreshIntervalMs     int    `json:"refreshIntervalMs"`
 }
 
 // Device 是控制器远程模式的 WebSocket 地址，最终拼成 ws://host:port/path。
@@ -122,21 +118,25 @@ type Point struct {
 // builtinSettings 是 config.json 不可用时的兜底。配置坏了只影响界面内容，
 // 没道理连带把连接和读写一起废掉——现场至少还能用寄存器标签页。
 func builtinSettings() Settings {
+	// 兜底只放文档示例地址 10000。IO 点位号猜不出来，凭空给一组只会误导现场。
+	// 指令页不依赖任何配置，兜底里也带上。
 	return Settings{
 		Device:                Device{Host: "192.168.1.136", Port: defaultPort, Path: "/"},
 		ConnectTimeoutSeconds: defaultConnectTimeout,
 		RequestTimeoutSeconds: defaultRequestTimeout,
 		RefreshIntervalMs:     defaultRefreshMs,
-		Tabs: []Tab{{
-			ID:    "register",
-			Title: "寄存器",
-			Kind:  kindRegister,
-			Groups: []Group{{
-				Title:  "寄存器",
-				Points: []Point{{Type: "BOOL", Port: 10000}},
-			}},
-		}},
-		// 兜底只放文档示例地址 10000。IO 点位号猜不出来，凭空给一组只会误导现场。
+		Tabs: []Tab{
+			{
+				ID:    "register",
+				Title: "寄存器",
+				Kind:  kindRegister,
+				Groups: []Group{{
+					Title:  "寄存器",
+					Points: []Point{{Type: "BOOL", Port: 10000}},
+				}},
+			},
+			commandTab(),
+		},
 	}
 }
 
@@ -192,6 +192,19 @@ func loadSettings() Settings {
 		s.Tabs = append(s.Tabs, *tab)
 	}
 
+	// 显隐开关最后统一过一遍：被藏起来的面板照常读盘校验（坏了照样告警），
+	// 只是不进标签页列表——藏起来的那一页出了配置错不该变成无声无息。
+	filtered := s.Tabs[:0]
+	for _, tab := range s.Tabs {
+		if tabVisible(s.TabVisibility, tab.Kind) {
+			filtered = append(filtered, tab)
+		}
+	}
+	s.Tabs = filtered
+	if tabVisible(s.TabVisibility, kindCommand) {
+		s.Tabs = append(s.Tabs, commandTab())
+	}
+
 	s.Warning = strings.Join(warns, "；")
 	// 共享配置的地址优先：三个模块连的是同一台控制器，地址只该在一个地方改。
 	// 共享配置里没有地址时，才用本模块自己那份（出厂默认或 remote-config.json 里的）。
@@ -201,22 +214,59 @@ func loadSettings() Settings {
 	return s
 }
 
-// loadDevicePart 读连接参数。现场那份坏掉时退回出厂默认，出厂默认也坏掉时退回内置兜底——
+// loadDevicePart 读连接参数。现场那份盖在出厂默认上逐键合并（见 mergeRoot）；
+// 现场那份坏掉时整份退回出厂默认，出厂默认也坏掉时退回内置兜底——
 // 内置兜底有测试盯着，走到最后这一支基本只剩「有人改坏了 config/config.json 又没跑测试」。
 func loadDevicePart() (Settings, string) {
+	base, warn := builtinDevicePart("")
+
 	raw, path, err := readStore(deviceFileName)
 	if err == nil {
-		if s, perr := parseRoot(raw); perr == nil {
-			return s, ""
-		} else {
-			return builtinDevicePart(fmt.Sprintf("%s 不可用（%v），连接参数已退回出厂默认。"+
-				"这个文件没有被改动，可以打开它人工修好。", path, perr))
+		merged, perr := mergeRoot(base, raw)
+		if perr == nil {
+			return merged, warn
 		}
+		w := fmt.Sprintf("%s 不可用（%v），连接参数已整份退回出厂默认。"+
+			"这个文件没有被改动，可以打开它人工修好。", path, perr)
+		return base, joinWarn(warn, w)
 	}
 	if errors.Is(err, errNoOverride) {
-		return builtinDevicePart("")
+		return base, warn
 	}
-	return builtinDevicePart(err.Error())
+	return base, joinWarn(warn, err.Error())
+}
+
+// mergeRoot 把现场配置盖在出厂默认上：json.Unmarshal 进已填好出厂值的结构体，
+// 只有文件里写了的键会覆盖，没写的键透出出厂值。tabVisibility 这类 map 也是
+// 逐键合并——现场只写要藏的那页，其余页跟着出厂走。
+//
+// 要逐键合并而不是整份替换：新版本给出厂配置加新键时（tabVisibility 就是这么来的），
+// 老机器上的现场文件里没有这个键，整份替换会把它永远挡住，改出厂默认也透不出来。
+//
+// 点位面板（io.json / register.json）不走合并：一份面板是一个整体文档，
+// 半新半旧的点位拼在一起只会更难查。
+func mergeRoot(base Settings, raw []byte) (Settings, error) {
+	raw = bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))
+	if err := json.Unmarshal(raw, &base); err != nil {
+		return Settings{}, describeParseError(raw, err)
+	}
+	if err := applyDeviceDefaults(&base); err != nil {
+		return Settings{}, err
+	}
+	// 连接配置里不放按钮，标签页由两份点位文件和指令页决定。
+	base.Tabs = nil
+	base.Warning = ""
+	return base, nil
+}
+
+func joinWarn(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + "；" + b
 }
 
 // builtinDevicePart 取出厂默认的连接参数。Tabs 一律清空——标签页由两份点位文件决定，
@@ -308,7 +358,26 @@ func validatePanel(tab Tab) (Tab, panelSource, error) {
 const (
 	kindIO       = "io"
 	kindRegister = "register"
+	// kindCommand 是「指令」标签页：不放点位，前端按 kind 渲染成固定界面（重启控制器）。
+	kindCommand = "command"
 )
+
+// commandTab 合成指令标签页。它不是点位面板，没有自己的配置文件，
+// 显不显示只由 remote-config.json 的 tabVisibility 决定。
+func commandTab() Tab {
+	return Tab{ID: "command", Title: "指令", Kind: kindCommand}
+}
+
+// tabVisible 报告一个标签页显不显示。配置里没写的键按显示处理，
+// 键名大小写不敏感——现场手写配置时 IO 和 io 不该是两种结果。
+func tabVisible(vis map[string]bool, kind string) bool {
+	for k, v := range vis {
+		if strings.EqualFold(strings.TrimSpace(k), kind) {
+			return v
+		}
+	}
+	return true
+}
 
 func supportedKinds() string {
 	return kindIO + "、" + kindRegister
@@ -424,8 +493,11 @@ func normalizeTab(t *Tab, seen map[string]bool) error {
 	t.Kind = strings.ToLower(strings.TrimSpace(t.Kind))
 	switch t.Kind {
 	case kindIO, kindRegister:
+	case kindCommand:
+		// 指令页没有点位，到这就够了。
+		return nil
 	default:
-		return fmt.Errorf("标签页 %q 的 kind %q 不认识，只支持 %s", t.ID, t.Kind, supportedKinds())
+		return fmt.Errorf("标签页 %q 的 kind %q 不认识，只支持 %s、%s", t.ID, t.Kind, supportedKinds(), kindCommand)
 	}
 
 	if len(t.Groups) == 0 {

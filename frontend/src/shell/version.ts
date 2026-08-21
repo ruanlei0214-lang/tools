@@ -16,4 +16,4 @@ export const APP_NAME = 'Estun Codroid 机器人工具箱'
  * 和 outputfilename（产物文件名，形如 C2toolsV1.0.4）。三处只能手工保持一致：
  * 这里是打进前端包的 TS 常量，那两处是构建工具读的 JSON，没有共同的读取点。
  */
-export const APP_VERSION = 'V1.0.11'
+export const APP_VERSION = 'V1.1.0'

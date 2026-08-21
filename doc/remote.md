@@ -1,13 +1,13 @@
 # 远程控制（remote）
 
-当前版本 **V1.3.13**，声明在 `frontend/src/modules/remote/module.ts`。
+当前版本 **V1.4.1**，声明在 `frontend/src/modules/remote/module.ts`。
 
 ## 做什么
 
-通过控制器远程模式接口控制上位机。页面只放标签页（IO / 寄存器），
+通过控制器远程模式接口控制上位机。页面只放标签页（IO / 寄存器 / 指令），
 连接参数（端口、路径、超时、刷新间隔）在 exe 同目录的 `remote-config.json` 里改，
 页面不显示。IO / 寄存器点位仍在界面上改，改完立即生效，不用重新构建也不用重启，
-详见「配置文件」。
+详见「配置文件」。三个标签页显不显示也由 `remote-config.json` 的 `tabVisibility` 决定。
 
 **传输层是 WebSocket**，地址是 `ws://<host>:<port><path>`，默认
 `ws://192.168.1.136:9000/`。注意这一点和接口文档不一致：
@@ -45,6 +45,13 @@
    `RegisterManager/GetRegisterValue` 和 `RegisterManager/SetRegisterValue`
    （见 `doc/api_documentation/远程模式接口说明.md`）。寄存器没有强制标志，配出来的地址都可以写。
 7. 连接归顶栏管，切换模块不断开；要断开点顶栏「断开」，两条连接一起收。灯马上灭；WebSocket 不再等 1 秒关闭握手。若本会话开过强制，仍会先清标志再拆线。
+8. **指令**标签页：只有「重启控制器」一个操作，页面上不读状态。点重启时才读状态
+   （走 `publish/RobotStatus` 订阅）：**读不到状态直接禁止重启**，读出来不是「未使能」
+   也禁止——这两种拦截都**弹窗警告**并在状态条留记录（只滚一行小字在现场容易被忽略）；
+   只有未使能才弹确认框——确认框里写明重启只作用于控制器、机器人本体不会随之重启，
+   并提醒确认现场安全。确认后后端还会再查一次状态（防确认之后有人把使能打开），
+   复查拦下的同样弹窗。然后通过 SSH 下发重启指令（指令本身不显示在界面上）。
+   重启会把 SSH 和 WS 连接都带走，需要等控制器起来后重新连接。
 
 ### 改点位
 
@@ -120,9 +127,16 @@
 界面上的地址在顶栏改，写入 exe 同目录的 `toolbox-config.json`，全系列工具共用。
 端口、路径、超时仍归本模块，改 `remote-config.json`，页面不显示。
 
-加载时三部分各自「现场那份有就用它，没有就用出厂默认」。干净的一台机器上一份现场配置都没有，
-界面和出厂默认完全一致、没有告警；界面上第一次保存才生成对应文件。「恢复默认」做的事就是
-删掉现场那一份。
+加载时分两种合并方式：
+
+- **`remote-config.json`（连接参数、超时、显隐）：逐键合并**。出厂默认打底，现场文件只覆盖
+  它写了的键，没写的键透出出厂值；`tabVisibility` 这种 map 也逐键合并，现场只写要藏的那页。
+  这样新版本给出厂配置加新键时，老机器上的现场文件不会把它挡住。
+- **`remote-io.json` / `remote-register.json`（点位面板）：整份替换**。一份面板是一个整体文档，
+  半新半旧的点位拼在一起只会更难查。现场那份存在且合法就用它，没有就用出厂默认。
+
+干净的一台机器上一份现场配置都没有，界面和出厂默认完全一致、没有告警；界面上第一次保存
+才生成对应文件。「恢复默认」做的事就是删掉现场那一份。
 
 分成三个文件而不是一份：逐份「恢复默认」不牵连另外两份，某一份坏掉时另两份照常可用。
 合成一份之后，IO 点位表里少个逗号会把连接参数一起废掉。
@@ -136,14 +150,15 @@
 
 下面的例子就是三份出厂默认的样子（`config.json`、`io.json`、`register.json`），现场配置的格式完全相同。
 
-`config.json` 只管连谁、超时多久：
+`config.json` 只管连谁、超时多久、哪几页显示：
 
 ```json
 {
   "device": { "host": "192.168.1.136", "port": 9000, "path": "/" },
   "connectTimeoutSeconds": 3,
   "requestTimeoutSeconds": 8,
-  "refreshIntervalMs": 1000
+  "refreshIntervalMs": 1000,
+  "tabVisibility": { "io": true, "register": true, "command": true }
 }
 ```
 
@@ -199,6 +214,13 @@
 | `connectTimeoutSeconds` | 建连超时，1–60，省略按 `3` |
 | `requestTimeoutSeconds` | 单次请求等响应的上限，1–120，省略按 `8` |
 | `refreshIntervalMs` | IO / 寄存器标签页自动刷新的间隔，200–60000，省略按 `1000`。界面上那句「每 N 秒自动刷新」跟着它变 |
+| `tabVisibility` | 三个标签页的显隐开关，键是 `io` / `register` / `command`（大小写不敏感）。逐键合并：现场文件没写的键跟出厂默认走，出厂默认也没写才按显示处理。被藏起来的点位页照样读盘校验，配置坏了照样告警，只是不显示 |
+
+显隐之上还有一层**构建期裁剪**：profile 里可以给 remote 指定标签页白名单
+（见根目录 README 的「模块选装」），例如 `{"module": "remote", "tabs": ["command"]}`
+构建出来的产物只有指令页。这是产品形态决定，优先级高于一切配置——现场文件里
+把 `io` 写成 `true` 也救不回来。配置里的 `tabVisibility` 管的是「这个产物里
+有的页，现场要不要显示」。
 
 这几个范围在加载时校验，越界会让这份现场配置被判不可用，退回出厂默认并显示告警。
 
@@ -251,14 +273,16 @@
 | `SetRegister` | `(address: number, value: string) => Promise<void>` | `RegisterManager/SetRegisterValue` |
 | `ToggleRegister` | `(address, onValue, offValue) => Promise<number>` | 读回当前值再写反的那个 |
 | `PulseRegister` | `(address, value, offValue, pulseMs) => Promise<void>` | 写值、等待、恢复，等待在后端 |
+| `GetRobotStatus` | `() => Promise<RobotStatus>` | 订阅 `publish/RobotStatus` 并回最新一帧；首次等推送，之后回缓存 |
+| `RebootController` | `() => Promise<void>` | 先查状态（只放行「未使能」），再经 SSH 下发重启指令 |
 
 `Device`：`{ host, port, path }`。
-`DeviceSettings`：`{ device, connectTimeoutSeconds, requestTimeoutSeconds, refreshIntervalMs }`，
-就是 `remote-config.json` 里那一组值（`host` 只是随配置带上，改它要去 `toolbox-config.json`）。
 `IOPoint`：`{ type, port }`。`IOValue`：`{ type, port, value }`。
 `RegisterValue`：`{ address, value }`，`value` 一律转成字符串方便展示。
 `Status`：`{ connected, addr, error }`，`error` 是被动断开的原因。
 `PanelFileResult`：`{ settings, path, canceled }`。
+`RobotStatus`：`{ mode, state, stateName, modeName, isSimulation }`，`state` 为 `0` 表示未使能；
+`stateName` / `modeName` 由后端补齐（推送里没带状态名时按文档的表翻），前端直接用。
 
 ## 实现要点
 
@@ -323,6 +347,23 @@
   控制器不认的端口一起发出去。
 - **两页的编辑控件共用**（`PointEditor.vue` 与 `usePanelEdit.ts`）。各写一份就是让它们
   各自漂移——改了 IO 的字段顺序忘了改寄存器那边，界面立刻不一致。
+- **订阅推送按 `ty` 分发**。读协程里没人等响应的包交给 `onPush`；`robotTracker` 只认
+  `publish/RobotStatus`，缓存最新一帧。推送到达很勤（实测约每秒一帧），缓存着的永远是
+  最新状态，之后每次查询不用再等控制器。
+- **订阅报文不能带 `id`，也不能带 `db:null`**。实测这台控制器对这两种订阅请求都直接
+  沉默——不报错也不推数据，订阅方只能干等超时（2026-08 在 `192.168.1.136` 上逐格式
+  隔离实测，探针在 `tools/wsprobe`）。文档里的订阅示例恰好就是没有 `id` 的写法。
+  请求-响应式接口（IO、寄存器）照旧带 `id`。
+- **状态名以控制器自报的 `stateName` 为准**。文档的状态表（`state` 2=空闲）和这台真机
+  对不上——它 `state=2` 时自报「已使能」。所以展示用 `stateName`，重启放行也认
+  「`state==0` 或 `stateName==未使能`」，单看 `state` 会把能重启的固件拦死。
+- **重启走两条路**。状态确认走 WS 订阅（远程接口里有），重启指令走 SSH（远程接口里没有，
+  `reboot` 是系统命令）。SSH 凭据取共享配置 `toolbox-config.json`，和 board / netcfg 同源。
+  下发用 `sess.Start` 不用 `Run`：`reboot -f` 会立刻把 sshd 一起带走，等命令「正常结束」
+  只会等到一个连接断开的错；`Start` 返回就说明指令已经交到设备上的 shell。
+- **重启前查两次状态**。界面点按钮时查一次（状态不对直接拦，不弹确认框），后端
+  `RebootController` 再查一次——确认框弹着的时候别人可能把使能打开。状态查不出来
+  也算不许重启：宁可误拦，不能带着使能重启。
 
 
 ## 已知限制
@@ -330,6 +371,9 @@
 - 连接被控制器单方面掐掉时，来不及把强制标志清掉，物理输入会保持被盖住，
   只能重新连上再点一次「取消强制」，或在示教器上解除。
 - 只有轮询，没有订阅式推送。间隔能在界面上调（200–60000 毫秒），但没有推送就得一直问。
+  例外是指令页的机器人状态：它走 `publish/RobotStatus` 订阅推送。
+- 重启控制器依赖控制器支持 `publish/RobotStatus` 订阅；订阅不出状态就拒绝重启
+  （状态确认不了时宁可不重启）。SSH 走 22 端口，凭据来自共享配置，不支持密钥登录。
 - **界面保存或导入会整份覆盖盘上那份**。要手工改 exe 旁边那三个文件，就先关掉程序，
   或者改完先在界面上重开一次这个模块再动手——否则界面上那份保存下去会把手工改动冲掉。
   换一份点位清单更稳妥的做法是操作栏的「导入」。
@@ -345,16 +389,20 @@
 
 ```
 internal/modules/remote/remote.go             模块入口与对外方法
-internal/modules/remote/client.go             WebSocket 长连接客户端、路径探测与解析
-internal/modules/remote/config.go             配置结构与校验、现场配置与出厂默认的取舍
+internal/modules/remote/client.go             WebSocket 长连接客户端、路径探测与解析、推送分发
+internal/modules/remote/config.go             配置结构与校验、现场配置与出厂默认的取舍、标签页显隐
+internal/modules/remote/status.go             机器人状态订阅缓存（publish/RobotStatus）与重启放行检查
+internal/modules/remote/ssh.go                重启指令的 SSH 下发（reboot 不在远程接口里）
 internal/modules/remote/store.go              现场配置的读、原子写、删
-internal/modules/remote/config/config.json    出厂默认：连接地址与超时
+tools/wsprobe/main.go                         诊断工具：对真机验证订阅报文格式与状态获取
+internal/modules/remote/config/config.json    出厂默认：连接地址、超时、标签页显隐
 internal/modules/remote/config/io.json        出厂默认：IO 点位
 internal/modules/remote/config/register.json  出厂默认：寄存器点位
 frontend/src/modules/remote/module.ts         模块清单
 frontend/src/modules/remote/RemoteView.vue    标签页外壳（连接参数不在页面上）
 frontend/src/modules/remote/IoPanel.vue       IO 点位与状态
 frontend/src/modules/remote/RegisterPanel.vue 寄存器点位与状态
+frontend/src/modules/remote/CommandPanel.vue  指令页：机器人状态与重启控制器
 frontend/src/modules/remote/PointEditor.vue   点位编辑表单，两页共用
 frontend/src/modules/remote/usePanelEdit.ts   编辑状态与保存、恢复默认，两页共用
 ```

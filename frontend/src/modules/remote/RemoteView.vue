@@ -5,6 +5,7 @@ import type { remote } from '../../../wailsjs/go/models'
 import { conn, refreshStatus } from '../../shell/connection'
 import IoPanel from './IoPanel.vue'
 import RegisterPanel from './RegisterPanel.vue'
+import CommandPanel from './CommandPanel.vue'
 
 // 标签页与点位来自后端的配置。端口、路径、超时在 remote-config.json 里改，
 // 页面不再摆编辑区——一年动不了一次，摆出来只会占地方。
@@ -85,6 +86,12 @@ async function syncStatus() {
       :config-dir="configDir"
       @refresh-status="syncStatus"
       @config-updated="onConfigUpdated"
+    />
+    <CommandPanel
+      v-else-if="activeTab.kind === 'command'"
+      :key="activeTab.id"
+      :connected="connected"
+      @refresh-status="syncStatus"
     />
     <p v-else class="empty">标签页类型 {{ activeTab.kind }} 还没有对应界面。</p>
   </template>

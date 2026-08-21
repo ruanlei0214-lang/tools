@@ -1,197 +1,3 @@
-export namespace board {
-	
-	export class Command {
-	    id: string;
-	    name: string;
-	    command: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Command(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.command = source["command"];
-	    }
-	}
-	export class CommandList {
-	    commands: Command[];
-	    path: string;
-	    warning: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CommandList(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.commands = this.convertValues(source["commands"], Command);
-	        this.path = source["path"];
-	        this.warning = source["warning"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class CommandFileResult {
-	    list: CommandList;
-	    path: string;
-	    canceled: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new CommandFileResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.list = this.convertValues(source["list"], CommandList);
-	        this.path = source["path"];
-	        this.canceled = source["canceled"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	export class Device {
-	    host: string;
-	    port: number;
-	    user: string;
-	    password: string;
-	    keyPath: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Device(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.host = source["host"];
-	        this.port = source["port"];
-	        this.user = source["user"];
-	        this.password = source["password"];
-	        this.keyPath = source["keyPath"];
-	    }
-	}
-	export class Entry {
-	    name: string;
-	    size: number;
-	    isDir: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new Entry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.size = source["size"];
-	        this.isDir = source["isDir"];
-	    }
-	}
-	export class Settings {
-	    device: Device;
-	    connectTimeoutSeconds: number;
-	    defaultPath: string;
-	    warning: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Settings(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.device = this.convertValues(source["device"], Device);
-	        this.connectTimeoutSeconds = source["connectTimeoutSeconds"];
-	        this.defaultPath = source["defaultPath"];
-	        this.warning = source["warning"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class Status {
-	    connected: boolean;
-	    addr: string;
-	    error: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Status(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.connected = source["connected"];
-	        this.addr = source["addr"];
-	        this.error = source["error"];
-	    }
-	}
-	export class UploadResult {
-	    count: number;
-	    conflicts: string[];
-	    needsConfirm: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new UploadResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.count = source["count"];
-	        this.conflicts = source["conflicts"];
-	        this.needsConfirm = source["needsConfirm"];
-	    }
-	}
-
-}
-
 export namespace netcfg {
 	
 	export class Config {
@@ -576,6 +382,7 @@ export namespace remote {
 	    requestTimeoutSeconds: number;
 	    refreshIntervalMs: number;
 	    tabs: Tab[];
+	    tabVisibility: Record<string, boolean>;
 	    configDir: string;
 	    warning: string;
 	
@@ -590,6 +397,7 @@ export namespace remote {
 	        this.requestTimeoutSeconds = source["requestTimeoutSeconds"];
 	        this.refreshIntervalMs = source["refreshIntervalMs"];
 	        this.tabs = this.convertValues(source["tabs"], Tab);
+	        this.tabVisibility = source["tabVisibility"];
 	        this.configDir = source["configDir"];
 	        this.warning = source["warning"];
 	    }
@@ -659,6 +467,26 @@ export namespace remote {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.address = source["address"];
 	        this.value = source["value"];
+	    }
+	}
+	export class RobotStatus {
+	    mode: number;
+	    state: number;
+	    stateName: string;
+	    modeName: string;
+	    isSimulation: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RobotStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.state = source["state"];
+	        this.stateName = source["stateName"];
+	        this.modeName = source["modeName"];
+	        this.isSimulation = source["isSimulation"];
 	    }
 	}
 	

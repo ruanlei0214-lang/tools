@@ -14,11 +14,15 @@ export function GetIO(arg1:Array<remote.IOPoint>):Promise<Array<remote.IOValue>>
 
 export function GetRegisters(arg1:Array<number>):Promise<Array<remote.RegisterValue>>;
 
+export function GetRobotStatus():Promise<remote.RobotStatus>;
+
 export function ImportPanel(arg1:string):Promise<remote.PanelFileResult>;
 
 export function PulseIO(arg1:remote.IOPoint,arg2:number,arg3:number,arg4:number):Promise<void>;
 
 export function PulseRegister(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
+
+export function RebootController():Promise<void>;
 
 export function ResetPanel(arg1:string):Promise<remote.Settings>;
 

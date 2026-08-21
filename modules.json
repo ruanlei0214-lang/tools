@@ -2,7 +2,7 @@
   "profiles": {
     "all": ["*"],
     "netcfg-only": ["netcfg"],
-    "netcfg-ping": ["netcfg", "ping"],
+    "netcfg-ping-remote": ["netcfg", "ping", { "module": "remote", "tabs": ["command"] }],
     "board-only": ["board"]
   }
 }

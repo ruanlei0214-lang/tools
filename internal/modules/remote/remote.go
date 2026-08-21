@@ -41,7 +41,10 @@ type Module struct {
 	svc *Service
 }
 
-func New() *Module { return &Module{svc: newService()} }
+// New 创建 remote 模块。tabs 是构建期的标签页白名单，由 genmodules 按 profile
+// 填进 modules_gen.go；不传表示不裁剪，显隐全由配置决定。被裁掉的页签是
+// 产品形态决定，现场配置改不回来——和 profile 裁掉整个模块一个道理。
+func New(tabs ...string) *Module { return &Module{svc: newService(tabs...)} }
 
 func (m *Module) ID() string { return "remote" }
 
@@ -96,16 +99,55 @@ type Service struct {
 	cfgMu    sync.RWMutex
 	settings Settings
 
+	// buildTabs 是构建期选定的标签页白名单（New 的参数，来自 profile）。
+	// nil 表示不裁剪。它在构造时定死，之后只读，不用锁。
+	buildTabs map[string]bool
+
 	mu     sync.Mutex
 	conn   *client
 	lastEr string
 	// forced 记下本会话里打开过强制的输入点位。断开时要逐路关掉：
 	// 强制标志活在控制器上，socket 断了它不会自己掉，物理输入会一直被盖住。
 	forced map[string]IOPoint
+	// tracker 跟着 conn 走：换连接就换 tracker，旧连接缓存的状态不能算数。
+	tracker *robotTracker
 }
 
-func newService() *Service {
-	return &Service{settings: loadSettings()}
+func newService(tabs ...string) *Service {
+	s := &Service{buildTabs: tabSet(tabs)}
+	s.settings = s.loadSettings()
+	return s
+}
+
+func tabSet(tabs []string) map[string]bool {
+	if len(tabs) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(tabs))
+	for _, t := range tabs {
+		set[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+	return set
+}
+
+// loadSettings 读盘之后过一遍构建期白名单：被裁的页签照常读盘校验
+// （坏了照样告警），只是不进标签页列表。
+func (s *Service) loadSettings() Settings {
+	return filterBuildTabs(loadSettings(), s.buildTabs)
+}
+
+func filterBuildTabs(s Settings, tabs map[string]bool) Settings {
+	if tabs == nil {
+		return s
+	}
+	kept := s.Tabs[:0]
+	for _, tab := range s.Tabs {
+		if tabs[tab.Kind] {
+			kept = append(kept, tab)
+		}
+	}
+	s.Tabs = kept
+	return s
 }
 
 // Config 返回页面要用的全部配置：连接默认值与标签页定义。
@@ -278,7 +320,7 @@ func (s *Service) applyImportedPanel(kind string, raw []byte, label string) (Set
 // reload 落盘之后整份重新加载，而不是只把改动那一块塞进内存。
 // 图的是内存里那份和盘上那份不会分叉：保存后界面看到的就是下次开机会看到的。
 func (s *Service) reload() Settings {
-	next := loadSettings()
+	next := s.loadSettings()
 	s.cfgMu.Lock()
 	s.settings = next
 	s.cfgMu.Unlock()
@@ -300,6 +342,7 @@ func (s *Service) statusLocked() Status {
 		s.lastEr = s.conn.closedErr().Error()
 		s.conn = nil
 		s.forced = nil
+		s.tracker = nil
 		return Status{Error: s.lastEr}
 	}
 	return Status{Connected: true, Addr: s.conn.addr}
@@ -321,7 +364,10 @@ func (s *Service) Connect(d Device) (Status, error) {
 		s.lastEr = err.Error()
 		return Status{Error: s.lastEr}, err
 	}
+	tr := newRobotTracker()
+	c.setOnPush(tr.onPush)
 	s.conn = c
+	s.tracker = tr
 	return Status{Connected: true, Addr: c.addr}, nil
 }
 
@@ -342,6 +388,7 @@ func (s *Service) releaseLocked() {
 		s.conn.Close()
 		s.conn = nil
 	}
+	s.tracker = nil
 }
 
 // GetIO 批量读点位。界面上的一屏状态一次读完，别一个点位一个请求。
@@ -728,7 +775,11 @@ func describeWriteError(point IOPoint, err error) error {
 func (s *Service) client() (*client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.clientLocked()
+}
 
+// clientLocked 是持锁版的 client()，调用方必须已经拿着 s.mu。
+func (s *Service) clientLocked() (*client, error) {
 	if s.conn == nil {
 		if s.lastEr != "" {
 			return nil, fmt.Errorf("尚未连接控制器（%s）", s.lastEr)
@@ -740,9 +791,22 @@ func (s *Service) client() (*client, error) {
 		s.lastEr = err.Error()
 		s.conn = nil
 		s.forced = nil
+		s.tracker = nil
 		return nil, err
 	}
 	return s.conn, nil
+}
+
+// clientAndTracker 一次取出连接和它的状态跟踪器。两个要一起拿：
+// 分开取的话中间连接被换掉，状态就会记到新连接的头上。
+func (s *Service) clientAndTracker() (*client, *robotTracker, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.clientLocked()
+	if err != nil {
+		return nil, nil, err
+	}
+	return c, s.tracker, nil
 }
 
 // connectTimeout / requestTimeout 每次都从快照里取：界面改过超时之后，

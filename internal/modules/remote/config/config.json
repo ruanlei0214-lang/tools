@@ -6,5 +6,10 @@
   },
   "connectTimeoutSeconds": 3,
   "requestTimeoutSeconds": 8,
-  "refreshIntervalMs": 1000
+  "refreshIntervalMs": 1000,
+  "tabVisibility": {
+    "io": true,
+    "register": true,
+    "command": true
+  }
 }

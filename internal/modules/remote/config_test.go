@@ -13,6 +13,22 @@ func TestEmbeddedConfigIsValid(t *testing.T) {
 		t.Fatalf("config.json 解析失败：%v", err)
 	}
 
+	// 点位文件直接过 buildPanel：出厂 config.json 的 tabVisibility 是现场要调的，
+	// 把某一页藏起来不该让「这份点位文件本身好不好」的校验跟着失效。
+	for _, src := range panelSources() {
+		tab, err := buildPanel(src.builtin, src.builtinAs, src)
+		if err != nil {
+			t.Fatalf("出厂默认 %s 不可用：%v", src.builtinAs, err)
+		}
+		n := 0
+		for _, g := range tab.Groups {
+			n += len(g.Points)
+		}
+		if n == 0 {
+			t.Fatalf("%s 里没有任何点位", src.builtinAs)
+		}
+	}
+
 	// 指到临时目录：开发机上真有现场配置的话，这个测试就在验那份而不是出厂默认。
 	useTempConfigDir(t)
 
@@ -23,25 +39,16 @@ func TestEmbeddedConfigIsValid(t *testing.T) {
 	if len(s.Tabs) == 0 {
 		t.Fatal("加载后没有标签页")
 	}
-	var points int
-	var regs int
-	for _, tab := range s.Tabs {
-		n := 0
-		for _, g := range tab.Groups {
-			n += len(g.Points)
-		}
-		switch tab.Kind {
-		case kindIO:
-			points += n
-		case kindRegister:
-			regs += n
-		}
-	}
-	if points == 0 {
-		t.Fatal("io.json 里没有任何点位")
-	}
-	if regs == 0 {
-		t.Fatal("register.json 里没有任何点位")
+}
+
+// showAllTabs 写一份显式全开 tabVisibility 的现场连接配置。
+// 出厂 config.json 的显隐是现场要调的东西，验点位、验保存的测试不该跟着它翻；
+// 合并加载之后，现场文件没写的键会透出出厂值，所以这里要显式写全。
+func showAllTabs(t *testing.T) {
+	t.Helper()
+	if err := writeStore(deviceFileName, []byte(
+		`{"device":{"host":"10.1.2.3"},"tabVisibility":{"io":true,"register":true,"command":true}}`)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -324,11 +331,164 @@ func findTab(s Settings, kind string) *Tab {
 	return nil
 }
 
+// 三个标签页的显隐都由 remote-config.json 的 tabVisibility 决定，没写的键按显示处理。
+func TestLoadSettingsTabVisibility(t *testing.T) {
+	useTempConfigDir(t)
+	showAllTabs(t)
+
+	// 没写 tabVisibility 时三页都在，指令页排在最后。
+	s := loadSettings()
+	for _, kind := range []string{kindIO, kindRegister, kindCommand} {
+		if findTab(s, kind) == nil {
+			t.Fatalf("默认应当显示 %s 页", kind)
+		}
+	}
+	if s.Tabs[len(s.Tabs)-1].Kind != kindCommand {
+		t.Fatalf("指令页应当排在最后：%+v", s.Tabs)
+	}
+
+	if err := writeStore(deviceFileName, []byte(
+		`{"device":{"host":"10.1.2.3"},"tabVisibility":{"io":false,"command":false}}`)); err != nil {
+		t.Fatal(err)
+	}
+	s = loadSettings()
+	if s.Warning != "" {
+		t.Fatalf("不该有告警：%s", s.Warning)
+	}
+	if findTab(s, kindIO) != nil {
+		t.Fatal("io 被藏起来了就不该出现")
+	}
+	if findTab(s, kindCommand) != nil {
+		t.Fatal("command 被藏起来了就不该出现")
+	}
+	// 没写的键跟出厂默认走（逐键合并），出厂默认里也没写才按显示处理。
+	factory, err := parseRoot(configJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findTab(s, kindRegister) != nil; got != tabVisible(factory.TabVisibility, kindRegister) {
+		t.Fatalf("register 没写应当跟出厂走：显示=%v，出厂=%v", got, tabVisible(factory.TabVisibility, kindRegister))
+	}
+}
+
+// 逐键合并：现场文件只覆盖写了的键，没写的键透出出厂默认。
+// 新版本给出厂配置加新键时，老机器上的现场文件不该把它挡住。
+func TestMergeRootKeepsFactoryValuesForMissingKeys(t *testing.T) {
+	base := Settings{
+		Device:                Device{Host: "1.2.3.4", Port: 9000, Path: "/"},
+		ConnectTimeoutSeconds: 3,
+		RequestTimeoutSeconds: 8,
+		RefreshIntervalMs:     1000,
+		TabVisibility:         map[string]bool{"io": false, "register": true, "command": true},
+	}
+	merged, err := mergeRoot(base, []byte(
+		`{"device":{"host":"10.0.0.9"},"tabVisibility":{"register":false}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 写了的键覆盖出厂值。
+	if merged.Device.Host != "10.0.0.9" {
+		t.Fatalf("host 没被现场覆盖：%+v", merged.Device)
+	}
+	if merged.TabVisibility["register"] {
+		t.Fatal("register 没被现场藏起来")
+	}
+	// 没写的键透出出厂值。
+	if merged.Device.Port != 9000 || merged.RefreshIntervalMs != 1000 {
+		t.Fatalf("没写的键该跟出厂走：%+v", merged)
+	}
+	if merged.TabVisibility["io"] {
+		t.Fatal("io 该透出出厂的 false")
+	}
+	if !merged.TabVisibility["command"] {
+		t.Fatal("command 该透出出厂的 true")
+	}
+}
+
+func TestMergeRootRejectsBroken(t *testing.T) {
+	base := Settings{Device: Device{Host: "1.2.3.4", Port: 9000}, ConnectTimeoutSeconds: 3,
+		RequestTimeoutSeconds: 8, RefreshIntervalMs: 1000}
+
+	if _, err := mergeRoot(base, []byte(`{"device":[`)); err == nil {
+		t.Fatal("坏 JSON 应当报错")
+	}
+	if _, err := mergeRoot(base, []byte(`{"refreshIntervalMs":50}`)); err == nil {
+		t.Fatal("越界值应当报错")
+	}
+}
+
+// 构建期白名单是绝对的：现场配置显式全开也救不回被裁的页签。
+func TestBuildTabsCutIsAbsolute(t *testing.T) {
+	useTempConfigDir(t)
+	showAllTabs(t)
+
+	cfg := newService("command").Config()
+	if findTab(cfg, kindCommand) == nil {
+		t.Fatal("command 页该在")
+	}
+	if findTab(cfg, kindIO) != nil || findTab(cfg, kindRegister) != nil {
+		t.Fatalf("构建期裁掉的页签不该出现：%+v", cfg.Tabs)
+	}
+
+	// 不传白名单则不裁剪，三页都在。
+	cfg = newService().Config()
+	for _, kind := range []string{kindIO, kindRegister, kindCommand} {
+		if findTab(cfg, kind) == nil {
+			t.Fatalf("不裁剪时 %s 页该在", kind)
+		}
+	}
+}
+
+// 端到端：现场文件只写了 host，其余键（含 tabVisibility）都该和出厂默认一致。
+func TestLoadSettingsMergesFactoryDefaults(t *testing.T) {	useTempConfigDir(t)
+
+	factory, err := parseRoot(configJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeStore(deviceFileName, []byte(`{"device":{"host":"10.1.2.3"}}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	s := loadSettings()
+	if s.Device.Host != "10.1.2.3" {
+		t.Fatalf("host 没用现场那份：%+v", s.Device)
+	}
+	if s.Device.Port != factory.Device.Port || s.RefreshIntervalMs != factory.RefreshIntervalMs {
+		t.Fatalf("没写的键该跟出厂走：%+v", s)
+	}
+	for _, kind := range []string{kindIO, kindRegister, kindCommand} {
+		if got, want := findTab(s, kind) != nil, tabVisible(factory.TabVisibility, kind); got != want {
+			t.Fatalf("%s 页显示=%v，出厂默认是 %v", kind, got, want)
+		}
+	}
+}
+
+// 被藏起来的那一页照样读盘校验：配置坏了要告警，不能因为不显示就无声无息。
+func TestLoadSettingsHiddenPanelStillWarns(t *testing.T) {	useTempConfigDir(t)
+
+	if err := writeStore(deviceFileName, []byte(`{"tabVisibility":{"io":false}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeStore(ioFileName, []byte(`{"groups":[`)); err != nil {
+		t.Fatal(err)
+	}
+	s := loadSettings()
+	if !strings.Contains(s.Warning, ioFileName) {
+		t.Fatalf("藏起来的页面配置坏了也要说：%q", s.Warning)
+	}
+	if findTab(s, kindIO) != nil {
+		t.Fatal("io 被藏起来了就不该出现")
+	}
+}
+
 // 现场配置的存在感就体现在这里：盘上有那一份，出厂默认就退到后面去。
 func TestLoadSettingsPrefersStoredConfig(t *testing.T) {
 	useTempConfigDir(t)
 
-	if err := writeStore(deviceFileName, []byte(`{"device":{"host":"10.1.2.3","port":8080}}`)); err != nil {
+	if err := writeStore(deviceFileName, []byte(
+		`{"device":{"host":"10.1.2.3","port":8080},"tabVisibility":{"io":true,"register":true,"command":true}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeStore(ioFileName, []byte(
@@ -360,7 +520,8 @@ func TestLoadSettingsPrefersStoredConfig(t *testing.T) {
 func TestLoadSettingsIsolatesBadFile(t *testing.T) {
 	useTempConfigDir(t)
 
-	if err := writeStore(deviceFileName, []byte(`{"device":{"host":"10.1.2.3"}}`)); err != nil {
+	if err := writeStore(deviceFileName, []byte(
+		`{"device":{"host":"10.1.2.3"},"tabVisibility":{"io":true,"register":true,"command":true}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeStore(ioFileName, []byte(`{"groups":[`)); err != nil {
@@ -426,6 +587,7 @@ func TestLoadSettingsRejectsOutOfRangeStoredDevice(t *testing.T) {
 // 两份现场配置各写了同一个 id 时不能顶掉彼此，界面得还是两页。
 func TestLoadSettingsHandlesDuplicateTabID(t *testing.T) {
 	useTempConfigDir(t)
+	showAllTabs(t)
 
 	panel := `{"id":"same","groups":[{"points":[{"type":"%s","port":1}]}]}`
 	if err := writeStore(ioFileName, []byte(fmt.Sprintf(panel, "DO"))); err != nil {
@@ -436,8 +598,9 @@ func TestLoadSettingsHandlesDuplicateTabID(t *testing.T) {
 	}
 
 	s := loadSettings()
-	if len(s.Tabs) != 2 {
-		t.Fatalf("应当还是两页，实际 %d", len(s.Tabs))
+	// 两个点位页之外还有指令页，共三页；关键是两份点位没被彼此顶掉。
+	if len(s.Tabs) != 3 {
+		t.Fatalf("应当是三个标签页，实际 %d", len(s.Tabs))
 	}
 	if s.Tabs[0].ID == s.Tabs[1].ID {
 		t.Fatalf("id 还是撞着的：%q", s.Tabs[0].ID)

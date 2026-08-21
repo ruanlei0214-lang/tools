@@ -534,7 +534,10 @@ func loadProfiles(root string) ([]string, error) {
 	}
 	raw = bytesTrimBOM(raw)
 	var cfg struct {
-		Profiles map[string][]string `json:"profiles"`
+		// 这里只要 profile 的名字，条目内容不关心——条目可以是模块名，
+		// 也可以是 {"module":...,"tabs":[...]} 这种带选项的对象。
+		// 用 RawMessage 跳过条目解析，条目格式以后再加选项这里也不用动。
+		Profiles map[string][]json.RawMessage `json:"profiles"`
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, err

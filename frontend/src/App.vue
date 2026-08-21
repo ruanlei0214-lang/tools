@@ -117,10 +117,12 @@ function toggleConnect() {
           @change="commitHost"
           @keyup.enter="commitHost"
         />
+        <!-- 用户名是 SSH 的凭据：产物里没有 SSH（board 被裁掉）时只剩 WS，
+             WS 不用登录，不该被空用户名拦住。 -->
         <button
           v-if="conn.hasSsh || conn.hasWs"
           class="primary conn-toggle"
-          :disabled="!!conn.busy || (!anyConnected && (!conn.host.trim() || !conn.user.trim()))"
+          :disabled="!!conn.busy || (!anyConnected && (!conn.host.trim() || (conn.hasSsh && !conn.user.trim())))"
           @click="toggleConnect"
         >
           {{ conn.busy === 'connect' ? '连接中…' : conn.busy === 'disconnect' ? '断开中…' : anyConnected ? '断开' : '连接' }}

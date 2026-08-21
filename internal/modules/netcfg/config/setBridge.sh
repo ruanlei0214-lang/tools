@@ -3,8 +3,6 @@
 f=/opt/runtime/ip
 fmask=/opt/runtime/mask
 fgw=/opt/runtime/gateway
-LOG=/opt/setBridge.log
-LOG_MAX=200
 DEF_IP=192.168.1.136
 DEF_MASK=255.255.255.0
 
@@ -12,27 +10,39 @@ LAN3_IP=10.113.0.136
 LAN4_IP=10.113.1.136
 LAN34_MASK=255.255.255.0
 
-log() {
-    msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-    echo "$msg"
-    echo "$msg" >> "$LOG"
-    if [ "$(wc -l < "$LOG" 2>/dev/null || echo 0)" -gt "$LOG_MAX" ]; then
-        tail -n "$LOG_MAX" "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+# 并发保护：mkdir 原子锁；持锁进程异常死亡（kill -9）时清残留
+lockd=/tmp/setBridge.lock.d
+while ! mkdir "$lockd" 2>/dev/null; do
+    pid=$(cat "$lockd/pid" 2>/dev/null)
+    if [ -n "$pid" ] && [ ! -d "/proc/$pid" ]; then
+        rm -rf "$lockd"
+        continue
     fi
+    echo "setBridge 已在运行，退出"
+    exit 0
+done
+echo $$ > "$lockd/pid"
+trap 'rm -rf "$lockd"' EXIT
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
 chk() {
-    echo "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || return 1
+    # 拒绝前导零（如 001），防止 i2n 算术按八进制解析崩溃
+    echo "$1" | grep -Eq '^((0|[1-9][0-9]{0,2})\.){3}(0|[1-9][0-9]{0,2})$' || return 1
+    # 拒绝全 0 / 全 1
+    [ "$1" = "0.0.0.0" ] && return 1
+    [ "$1" = "255.255.255.255" ] && return 1
     oIFS=$IFS; IFS=.; set -- $1; IFS=$oIFS
     for n in "$1" "$2" "$3" "$4"; do
         [ "$n" -le 255 ] 2>/dev/null || return 1
     done
 }
 
-# 连续 1 后接连续 0，禁止 0.0.0.0
+# 连续 1 后接连续 0（0.0.0.0 已被 chk 拒绝）
 chk_mask() {
     chk "$1" || return 1
-    [ "$1" = "0.0.0.0" ] && return 1
     oIFS=$IFS; IFS=.; set -- $1; IFS=$oIFS
     gap=0
     for n in "$1" "$2" "$3" "$4"; do
@@ -84,12 +94,16 @@ chk "$IP" || {
     log "【异常】IP非法，用默认 $DEF_IP"
     IP=$DEF_IP
     # ip 文件只保留一行 IP，多余行随回写一起清掉
-    printf '%s' "$IP" > "$f.tmp" && mv "$f.tmp" "$f"
-    log "【日志】已回写默认 IP 到 $f"
+    if printf '%s' "$IP" > "$f.tmp" && mv "$f.tmp" "$f"; then
+        log "【日志】已回写默认 IP 到 $f"
+    else
+        log "【异常】回写默认 IP 到 $f 失败"
+    fi
 }
 # 掩码非法只在本次启动用默认值，不回写文件
 chk_mask "$MASK" || { log "【异常】掩码非法，用默认 $DEF_MASK"; MASK=$DEF_MASK; }
 
+# 禁止三层转发，隔离各网段（网桥为二层转发，不依赖此项）
 echo 0 > /proc/sys/net/ipv4/ip_forward 2>/dev/null
 
 [ -d /sys/class/net/lan1 ] || { log "【异常】网口 lan1 不存在"; exit 1; }
@@ -102,24 +116,30 @@ ip link set lan1 up; ip link set br0 up
 ip addr flush dev br0 2>/dev/null
 ifconfig br0 "$IP" netmask "$MASK" up || { log "【异常】br0 IP配置失败"; exit 1; }
 
+# 兼容老版本：清掉可能残留在 lan1 上的默认路由（没有则立即退出循环，无副作用）
+while ip route del default dev lan1 2>/dev/null; do :; done
+
 gw_log="无默认网关"
 gw_ok=0
 if chk "$GW" && [ "$GW" != "$IP" ]; then
     i2n "$IP"; ip_n=$N
     i2n "$MASK"; mask_n=$N
     i2n "$GW"; gw_n=$N
-    [ $(( ip_n & mask_n )) -eq $(( gw_n & mask_n )) ] && gw_ok=1
+    net_n=$(( ip_n & mask_n ))
+    bcast_n=$(( (net_n | ~mask_n) & 0xFFFFFFFF ))
+    # 同网段，且不是网络地址/广播地址
+    [ $(( gw_n & mask_n )) -eq "$net_n" ] && [ "$gw_n" -ne "$net_n" ] && [ "$gw_n" -ne "$bcast_n" ] && gw_ok=1
 fi
 if [ "$gw_ok" -eq 1 ]; then
     if ip route replace default via "$GW" dev br0; then
         gw_log="GW:$GW"
     else
         log "【异常】默认网关配置失败 GW:$GW"
-        ip route del default 2>/dev/null
+        ip route del default dev br0 2>/dev/null
     fi
 else
     log "【异常】网关[${GW:-空}]不可用，不配默认路由"
-    ip route del default 2>/dev/null
+    ip route del default dev br0 2>/dev/null
 fi
 log "【日志】br0 配置完成 IP:$IP MASK:$MASK $gw_log (绑定 lan1)"
 

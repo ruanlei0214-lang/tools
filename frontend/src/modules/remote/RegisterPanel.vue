@@ -40,11 +40,13 @@ const {
   stop: cancelEdit,
   addGroup,
   removeGroup,
+  moveGroup,
   addPoint,
   editPoint,
   applyPoint,
   cancelPoint,
   removePoint,
+  movePoint,
   save: saveDraft,
   reset: resetDraft,
   exportFile,
@@ -334,6 +336,22 @@ function pulseTitle(p: remote.Point): string {
           placeholder="分组名称"
         />
         <template v-if="editing">
+          <button
+            class="io-icon"
+            :disabled="!!busy || gi === 0"
+            title="上移分组"
+            @click="moveGroup(gi, -1)"
+          >
+            ↑
+          </button>
+          <button
+            class="io-icon"
+            :disabled="!!busy || gi === groups.length - 1"
+            title="下移分组"
+            @click="moveGroup(gi, 1)"
+          >
+            ↓
+          </button>
           <button class="io-icon" :disabled="!!busy" title="添加点位" @click="addPoint(gi)">
             ＋
           </button>
@@ -360,6 +378,22 @@ function pulseTitle(p: remote.Point): string {
           <span class="io-name" :title="`${p.label} · ${meta(p)}`">{{ p.label }}</span>
           <span class="io-port">{{ p.type }}{{ p.port }}</span>
           <template v-if="editing">
+            <button
+              class="io-icon"
+              :disabled="!!busy || pi === 0"
+              title="上移"
+              @click="movePoint(gi, pi, -1)"
+            >
+              ↑
+            </button>
+            <button
+              class="io-icon"
+              :disabled="!!busy || pi === (group.points?.length ?? 1) - 1"
+              title="下移"
+              @click="movePoint(gi, pi, 1)"
+            >
+              ↓
+            </button>
             <button class="io-icon" :disabled="!!busy" title="编辑" @click="editPoint(gi, pi)">
               ✎
             </button>

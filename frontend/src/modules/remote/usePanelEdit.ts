@@ -139,6 +139,31 @@ export function usePanelEdit(getTab: () => remote.Tab, defaultType: string) {
     return true
   }
 
+  // moveGroup / movePoint 在草稿里换位置，保存时才落盘。正在编辑的那一行
+  // 跟着挪：编辑的是内容不是序号，行挪走了编辑框不能留在原地编辑别人。
+  function moveGroup(gi: number, dir: -1 | 1) {
+    const groups = draft.value?.groups
+    if (!groups) return
+    const to = gi + dir
+    if (to < 0 || to >= groups.length) return
+    ;[groups[gi], groups[to]] = [groups[to], groups[gi]]
+    const at = editAt.value
+    if (at?.g === gi) editAt.value = { ...at, g: to }
+    else if (at?.g === to) editAt.value = { ...at, g: gi }
+  }
+
+  function movePoint(gi: number, pi: number, dir: -1 | 1) {
+    const points = draft.value?.groups?.[gi]?.points
+    if (!points) return
+    const to = pi + dir
+    if (to < 0 || to >= points.length) return
+    ;[points[pi], points[to]] = [points[to], points[pi]]
+    const at = editAt.value
+    if (at?.g !== gi) return
+    if (at.p === pi) editAt.value = { g: gi, p: to }
+    else if (at.p === to) editAt.value = { g: gi, p: pi }
+  }
+
   // save / reset 都把后端返回的整份配置交回调用方，由它更新页面——
   // 归一化（类型转大写、名称缺省补 DO15、onValue/offValue 补 1/0）发生在后端，
   // 前端自己算一遍迟早和后端对不上。
@@ -176,11 +201,13 @@ export function usePanelEdit(getTab: () => remote.Tab, defaultType: string) {
     stop,
     addGroup,
     removeGroup,
+    moveGroup,
     addPoint,
     editPoint,
     applyPoint,
     cancelPoint,
     removePoint,
+    movePoint,
     save,
     reset,
     exportFile,
